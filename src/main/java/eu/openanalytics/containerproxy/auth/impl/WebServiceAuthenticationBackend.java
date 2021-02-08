@@ -2,7 +2,6 @@
  * ContainerProxy
  *
  * Copyright (C) 2016-2020 Open Analytics
- * Modifications copyright (C) GAMS Development Corp. <support@gams.com>
  *
  * ===========================================================================
  *
@@ -18,6 +17,9 @@
  *
  * You should have received a copy of the Apache License
  * along with this program.  If not, see <http://www.apache.org/licenses/>
+ */
+/**
+ * Modifications copyright (C) GAMS Development Corp. <support@gams.com>
  */
 package eu.openanalytics.containerproxy.auth.impl;
 
