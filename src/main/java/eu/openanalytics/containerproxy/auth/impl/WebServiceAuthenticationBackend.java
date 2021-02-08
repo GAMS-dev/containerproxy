@@ -2,6 +2,7 @@
  * ContainerProxy
  *
  * Copyright (C) 2016-2020 Open Analytics
+ * Modifications copyright (C) GAMS Development Corp. <support@gams.com>
  *
  * ===========================================================================
  *
@@ -138,13 +139,13 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 					ResponseEntity<String> result = restTemplate.exchange(loginUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
 					if (result.getStatusCode() == HttpStatus.OK) {
 						String token = null;
- 						String tokenJsonPath = environment.getProperty("proxy.authentication-response-token");
+ 						String tokenJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-token");
  						if (tokenJsonPath != null) {
- 							token = JsonPath.parse(result.getBody()).read(tokenJsonPath);	
+ 							token = JsonPath.parse(result.getBody()).read(tokenJsonPath);
  						}
 
  						Set<GrantedAuthority> authorities = new HashSet<>();
- 						String roleJsonPath = environment.getProperty("proxy.authentication-response-roles");
+ 						String roleJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-roles");
  						if (roleJsonPath != null) {
  							ParseContext roleParser = JsonPath.using(Configuration.defaultConfiguration().addOptions(Option.ALWAYS_RETURN_LIST));
  							List<String> roles = roleParser.parse(result.getBody()).read(roleJsonPath);
