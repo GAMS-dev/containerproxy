@@ -266,6 +266,12 @@
 			<version>3.5.0</version>
 		</dependency>
 
+		<!-- JsonPath for WebserviceAuthentication parsing -->
+ 		<dependency>
+ 		   <groupId>com.jayway.jsonpath</groupId>
+ 		   <artifactId>json-path</artifactId>		   
+ 		</dependency>
+
 		<!-- Amazon S3 -->
 		<dependency>
 			<groupId>com.amazonaws</groupId>
