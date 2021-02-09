@@ -56,10 +56,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.Option;
-import com.jayway.jsonpath.ParseContext;
 
 import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
 
@@ -149,8 +146,7 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
  						Set<GrantedAuthority> authorities = new HashSet<>();
  						String roleJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-roles");
  						if (roleJsonPath != null) {
- 							ParseContext roleParser = JsonPath.using(Configuration.defaultConfiguration().addOptions(Option.ALWAYS_RETURN_LIST));
- 							List<String> roles = roleParser.parse(result.getBody()).read(roleJsonPath);
+ 							List<String> roles = JsonPath.parse(result.getBody()).read(roleJsonPath);
  							for (String role: roles) {
  								String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
  								authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
