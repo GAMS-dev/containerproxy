@@ -2,4 +2,6 @@
 application.yml
 logs
 .DS_Store
+.idea
+*.iml
 
