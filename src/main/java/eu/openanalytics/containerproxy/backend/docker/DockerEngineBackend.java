@@ -147,7 +147,7 @@ public class DockerEngineBackend extends AbstractDockerBackend {
 					dockerClient.disconnectFromNetwork(container.getId(), conn);
 				}
 			}
-			dockerClient.removeContainer(container.getId(), RemoveContainerParam.forceKill());
+			dockerClient.removeContainer(container.getId());
 		}
 		portAllocator.release(proxy.getId());
 	}
