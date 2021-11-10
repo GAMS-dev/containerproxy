@@ -26,6 +26,7 @@ package eu.openanalytics.containerproxy.auth.impl;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.inject.Inject;
@@ -174,11 +175,11 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 	}
 
 	@Override
- 	public void customizeContainerEnv(List<String> env) {
+ 	public void customizeContainerEnv(Map<String, String> env) {
  		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
  		if (auth == null) return;
 
  		WebServicePrincipal user = (WebServicePrincipal) auth.getPrincipal();
- 		env.add(ENV_TOKEN + "=" + user.getToken());
+ 		env.put(ENV_TOKEN, user.getToken());
  	}
 }
