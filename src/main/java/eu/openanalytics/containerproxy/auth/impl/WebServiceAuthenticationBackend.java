@@ -58,6 +58,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.PathNotFoundException;
 
 import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
 
@@ -71,15 +72,21 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 
  		private final String username;
  		private final String token;
+		private final String permissions;
 
- 		private WebServicePrincipal(String username, String token) {
+ 		private WebServicePrincipal(String username, String token, String permissions) {
  			super();
  			this.username = username;
  			this.token = token;
+			this.permissions = permissions;
  		}
 
  		public String getToken() {
  			return token;
+ 		}
+
+		public String getPermissions() {
+ 			return permissions;
  		}
 
  		@Override
@@ -144,6 +151,14 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
  							token = JsonPath.parse(result.getBody()).read(tokenJsonPath);
  						}
 
+						String permissions = "";
+
+						try {
+							permissions = JsonPath.parse(result.getBody()).read("$.permissions");
+						} catch(PathNotFoundException e) {
+							// old versions of auth container might not return this field
+						}
+
  						Set<GrantedAuthority> authorities = new HashSet<>();
  						String roleJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-roles");
  						if (roleJsonPath != null) {
@@ -154,7 +169,7 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
  							}	
  						}
 
- 						return new UsernamePasswordAuthenticationToken(new WebServicePrincipal(username, token), password, authorities);
+ 						return new UsernamePasswordAuthenticationToken(new WebServicePrincipal(username, token, permissions), password, authorities);
 					}
 					throw new AuthenticationServiceException("Unknown response received " + result);				
 				} catch (HttpClientErrorException e) {
@@ -181,5 +196,9 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 
  		WebServicePrincipal user = (WebServicePrincipal) auth.getPrincipal();
  		env.put(ENV_TOKEN, user.getToken());
+
+		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && user.getPermissions().equals("0") ) {
+			env.put("MIRO_MODE", "readonly");
+		}
  	}
 }
