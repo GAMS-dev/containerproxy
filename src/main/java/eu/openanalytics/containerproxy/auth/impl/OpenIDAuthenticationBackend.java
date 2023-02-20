@@ -62,6 +62,18 @@ import org.springframework.security.web.authentication.logout.SimpleUrlLogoutSuc
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.PathNotFoundException;
 
 import javax.inject.Inject;
 import javax.servlet.ServletException;
@@ -76,7 +88,7 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 	public static final String NAME = "openid";
 
 	private static final String REG_ID = "shinyproxy";
-	private static final String ENV_TOKEN_NAME = "SHINYPROXY_OIDC_ACCESS_TOKEN";
+	private static final String ENV_TOKEN_NAME = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
 	
 	private Logger log = LogManager.getLogger(OpenIDAuthenticationBackend.class);
 	
@@ -121,7 +133,6 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 					
 				})
 				.userInfoEndpoint()
-					.userAuthoritiesMapper(createAuthoritiesMapper())
 					.oidcUserService(createOidcUserService());
 	}
 
@@ -148,12 +159,12 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 		if (auth == null) return;
 
-		OidcUser user = (OidcUser) auth.getPrincipal();
-		HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
-		OAuth2AuthorizedClient client = oAuth2AuthorizedClientRepository.loadAuthorizedClient(REG_ID, auth, request);
-		if (client == null || client.getAccessToken() == null) return;
+		CustomNameOidcUser user = (CustomNameOidcUser) auth.getPrincipal();
+ 		env.put(ENV_TOKEN_NAME, user.getToken());
 
-		env.put(ENV_TOKEN_NAME, client.getAccessToken().getTokenValue());
+		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && user.getPermissions().equals("0") ) {
+			env.put("MIRO_MODE", "readonly");
+		}
 	}
 
 	@Inject
@@ -197,82 +208,6 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 		
 		return new InMemoryClientRegistrationRepository(Collections.singletonList(client));
 	}
-	
-	protected GrantedAuthoritiesMapper createAuthoritiesMapper() {
-		String rolesClaimName = environment.getProperty("proxy.openid.roles-claim");
-		if (rolesClaimName == null || rolesClaimName.isEmpty()) {
-			return authorities -> authorities;
-		} else {
-			return authorities -> {
-				Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
-				for (GrantedAuthority auth: authorities) {
-					if (auth instanceof OidcUserAuthority) {
-						OidcIdToken idToken = ((OidcUserAuthority) auth).getIdToken();
-						
-						if (log.isDebugEnabled()) {
-							String lineSep = System.getProperty("line.separator");
-							String claims = idToken.getClaims().entrySet().stream()
-								.map(e -> String.format("%s -> %s", e.getKey(), e.getValue()))
-								.collect(Collectors.joining(lineSep));
-							log.debug(String.format("Checking for roles in claim '%s'. Available claims in ID token (%d):%s%s",
-									rolesClaimName, idToken.getClaims().size(), lineSep, claims));
-						}
-						
-						Object claimValue = idToken.getClaims().get(rolesClaimName);
-
-						for (String role: parseRolesClaim(log, rolesClaimName, claimValue)) {
-							String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
-							mappedAuthorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
-						}
-					}
-				}
-				return mappedAuthorities;
-			};
-		}
-	}
-
-	/**
-	 * Parses the claim containing the roles to a List of Strings.
-	 * See #25549 and TestOpenIdParseClaimRoles
-	 */
-	public static List<String> parseRolesClaim(Logger log, String rolesClaimName, Object claimValue) {
-		if (claimValue == null) {
-			log.debug(String.format("No roles claim with name %s found", rolesClaimName));
-			return new ArrayList<>();
-		} else {
-			log.debug(String.format("Matching claim found: %s -> %s (%s)", rolesClaimName, claimValue, claimValue.getClass()));
-		}
-
-		if (claimValue instanceof Collection) {
-			List<String> result = new ArrayList<>();
-			for (Object object : ((Collection<?>) claimValue)) {
-				if (object != null) {
-					result.add(object.toString());
-				}
-			}
-			log.debug(String.format("Parsed roles claim as Java Collection: %s -> %s (%s)", rolesClaimName, result, result.getClass()));
-			return result;
-		}
-
-		if (claimValue instanceof String) {
-			List<String> result = new ArrayList<>();
-			try {
-				Object value = new JSONParser(JSONParser.MODE_PERMISSIVE).parse((String) claimValue);
-				if (value instanceof List) {
-					List<?> valueList = (List<?>) value;
-					valueList.forEach(o -> result.add(o.toString()));
-				}
-			} catch (ParseException e) {
-				// Unable to parse JSON
-				log.debug(String.format("Unable to parse claim as JSON: %s -> %s (%s)", rolesClaimName, claimValue, claimValue.getClass()));
-			}
-			log.debug(String.format("Parsed roles claim as JSON: %s -> %s (%s)", rolesClaimName, result, result.getClass()));
-			return result;
-		}
-
-		log.debug(String.format("No parser found for roles claim (unsupported type): %s -> %s (%s)", rolesClaimName, claimValue, claimValue.getClass()));
-		return new ArrayList<>();
-	}
 
 	protected OidcUserService createOidcUserService() {
 		// Use a custom UserService that supports the 'emails' array attribute.
@@ -287,11 +222,51 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 				}
 
 				String nameAttributeKey = environment.getProperty("proxy.openid.username-attribute", "email");
-				return new CustomNameOidcUser(new HashSet<>(user.getAuthorities()),
-						user.getIdToken(),
-						user.getUserInfo(),
-						nameAttributeKey
-				);
+
+				RestTemplate restTemplate = new RestTemplate();
+
+				HttpHeaders headers = new HttpHeaders();
+				headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+				headers.setContentType(MediaType.APPLICATION_JSON);
+
+				try {
+					String body = String.format("{\"id_token\": \"%s\"}", user.getIdToken().getTokenValue());
+					String loginUrl = environment.getProperty("proxy.webservice.authentication-url") + "/oidc";
+					ResponseEntity<String> result = restTemplate.exchange(loginUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+					if (result.getStatusCode() != HttpStatus.OK) {
+						throw new OAuth2AuthenticationException(new OAuth2Error("invalid_response", "Unknown response received " + result, ""));
+					}
+					String token = JsonPath.parse(result.getBody()).read("$.token");
+
+					String permissions = "";
+
+					try {
+						permissions = JsonPath.parse(result.getBody()).read("$.permissions");
+					} catch(PathNotFoundException e) {
+						// old versions of auth container might not return this field
+					}
+
+					String username = JsonPath.parse(result.getBody()).read("$.username");
+
+					Set<GrantedAuthority> authorities = new HashSet<>();
+					List<String> roles = JsonPath.parse(result.getBody()).read("$.roles");
+					for (String role: roles) {
+						String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
+						authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
+					}
+					return new CustomNameOidcUser(authorities,
+							user.getIdToken(),
+							user.getUserInfo(),
+							nameAttributeKey,
+							username,
+							token,
+							permissions
+					);
+				} catch (HttpClientErrorException ex) {
+					throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "HttpClientErrorException while trying to log in to Engine", ex);
+				} catch (RestClientException ex) {
+					throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "RestClientException while trying to log in to Engine", ex);
+				}
 			}
 		};
 	}
@@ -302,22 +277,29 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 		private static final long serialVersionUID = 7563253562760236634L;
 		private static final String ID_ATTR_EMAILS = "emails";
 		
-		private final boolean isEmailsAttribute;
+		private final String customName;
+		private final String token;
+		private final String permissions;
 
-		public CustomNameOidcUser(Set<GrantedAuthority> authorities, OidcIdToken idToken, OidcUserInfo userInfo, String nameAttributeKey) {
+		public CustomNameOidcUser(Set<GrantedAuthority> authorities, OidcIdToken idToken, OidcUserInfo userInfo, String nameAttributeKey,
+								  String customName, String token, String permissions) {
 			super(authorities, idToken, userInfo, nameAttributeKey);
-			this.isEmailsAttribute = nameAttributeKey.equals(ID_ATTR_EMAILS);
+			this.customName = customName;
+			this.token = token;
+			this.permissions = permissions;
 		}
 
 		@Override
 		public String getName() {
-			if (isEmailsAttribute) {
-				Object emails = getAttributes().get(ID_ATTR_EMAILS);
-				if (emails instanceof String[]) return ((String[]) emails)[0];
-				else if (emails instanceof JSONArray) return ((JSONArray) emails).get(0).toString();
-				else return emails.toString();
-			}
-			else return super.getName();
+			return customName;
+		}
+
+		public String getToken() {
+			return token;
+		}
+
+		public String getPermissions() {
+			return permissions;
 		}
 
 		public String getRefreshToken() {
