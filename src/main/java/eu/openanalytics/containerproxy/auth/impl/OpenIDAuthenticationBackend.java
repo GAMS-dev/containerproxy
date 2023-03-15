@@ -87,7 +87,7 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 
 	public static final String NAME = "openid";
 
-	private static final String REG_ID = "shinyproxy";
+	private static final String REG_ID = "miroserver";
 	private static final String ENV_TOKEN_NAME = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
 	
 	private Logger log = LogManager.getLogger(OpenIDAuthenticationBackend.class);
