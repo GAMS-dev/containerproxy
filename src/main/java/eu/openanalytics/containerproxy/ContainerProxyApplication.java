@@ -1,7 +1,7 @@
 /**
  * ContainerProxy
  *
- * Copyright (C) 2016-2021 Open Analytics
+ * Copyright (C) 2016-2023 Open Analytics
  *
  * ===========================================================================
  *
@@ -21,9 +21,14 @@
 package eu.openanalytics.containerproxy;
 
 import com.fasterxml.jackson.datatype.jsr353.JSR353Module;
+import eu.openanalytics.containerproxy.backend.ContainerBackendFactory;
+import eu.openanalytics.containerproxy.backend.docker.DockerEngineBackend;
+import eu.openanalytics.containerproxy.backend.docker.DockerSwarmBackend;
+import eu.openanalytics.containerproxy.backend.kubernetes.KubernetesBackend;
 import eu.openanalytics.containerproxy.service.hearbeat.ActiveProxiesService;
 import eu.openanalytics.containerproxy.service.hearbeat.HeartbeatService;
-import eu.openanalytics.containerproxy.service.hearbeat.SessionReActivatorService;
+import eu.openanalytics.containerproxy.service.hearbeat.IHeartbeatProcessor;
+import eu.openanalytics.containerproxy.util.LoggingConfigurer;
 import eu.openanalytics.containerproxy.util.ProxyMappingManager;
 import io.undertow.Handlers;
 import io.undertow.server.handlers.SameSiteCookieHandler;
@@ -32,13 +37,16 @@ import io.undertow.servlet.api.SessionManagerFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.springdoc.core.GroupedOpenApi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.redis.RedisHealthIndicator;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.web.embedded.undertow.UndertowServletWebServerFactory;
 import org.springframework.boot.web.server.PortInUseException;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -47,13 +55,14 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
-import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.session.security.SpringSessionBackedSessionRegistry;
+import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.web.filter.FormContentFilter;
 
 import javax.annotation.PostConstruct;
@@ -64,12 +73,21 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.Security;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static eu.openanalytics.containerproxy.api.ApiSecurityService.PROP_API_SECURITY_HIDE_SPEC_DETAILS;
+import static eu.openanalytics.containerproxy.service.AppRecoveryService.PROPERTY_RECOVER_RUNNING_PROXIES;
+import static eu.openanalytics.containerproxy.service.AppRecoveryService.PROPERTY_RECOVER_RUNNING_PROXIES_FROM_DIFFERENT_CONFIG;
+import static eu.openanalytics.containerproxy.service.ProxyService.PROPERTY_STOP_PROXIES_ON_SHUTDOWN;
+
+@EnableScheduling
 @EnableAsync
-@SpringBootApplication
+@SpringBootApplication(exclude = {UserDetailsServiceAutoConfiguration.class})
 @ComponentScan("eu.openanalytics")
 public class ContainerProxyApplication {
 	public static final String CONFIG_FILENAME = "application.yml";
@@ -94,12 +112,24 @@ public class ContainerProxyApplication {
 	public static Boolean secureCookiesEnabled;
 	public static String sameSiteCookiePolicy;
 
-	public static void main(String[] args) {
+	static {
 		Security.addProvider(new BouncyCastleProvider());
+		ContainerBackendFactory.addBackend("docker", DockerEngineBackend.class);
+		ContainerBackendFactory.addBackend("docker-swarm", DockerSwarmBackend.class);
+		ContainerBackendFactory.addBackend("kubernetes", KubernetesBackend.class);
+	}
+
+	public static void main(String[] args) {
 		SpringApplication app = new SpringApplication(ContainerProxyApplication.class);
 
+		app.addListeners(new LoggingConfigurer());
+
 		boolean hasExternalConfig = Files.exists(Paths.get(CONFIG_FILENAME));
-		if (!hasExternalConfig) app.setAdditionalProfiles(CONFIG_DEMO_PROFILE);
+		if (!hasExternalConfig) {
+			app.setAdditionalProfiles(CONFIG_DEMO_PROFILE);
+			Logger log = LogManager.getLogger(ContainerProxyApplication.class);
+			log.warn("WARNING: Did not found configuration, using fallback configuration!");
+		}
 
 		setDefaultProperties(app);
 
@@ -131,6 +161,43 @@ public class ContainerProxyApplication {
 		if (sameSiteCookiePolicy.equalsIgnoreCase("none") && !secureCookiesEnabled) {
 			log.warn("WARNING: Invalid configuration detected: same-site-cookie policy is set to None, but secure-cookies are not enabled. Secure cookies must be enabled when using None as same-site-cookie policy ");
 		}
+
+		if (environment.getProperty("proxy.store-mode", "").equalsIgnoreCase("Redis")) {
+			if (!environment.getProperty("spring.session.store-type", "").equalsIgnoreCase("redis")) {
+				// running in HA mode, but not using Redis sessions
+				log.warn("WARNING: Invalid configuration detected: store-mode is set to Redis (i.e. High-Availability mode), but you are not using Redis for user sessions!");
+			}
+			if (environment.getProperty(PROPERTY_STOP_PROXIES_ON_SHUTDOWN, Boolean.class, true)) {
+				// running in HA mode, but proxies are removed when shutting down
+				log.warn("WARNING: Invalid configuration detected: store-mode is set to Redis (i.e. High-Availability mode), but proxies are stopped at shutdown of server!");
+			}
+			if (environment.getProperty( PROPERTY_RECOVER_RUNNING_PROXIES, Boolean.class, false) ||
+				environment.getProperty( PROPERTY_RECOVER_RUNNING_PROXIES_FROM_DIFFERENT_CONFIG, Boolean.class, false) ) {
+				log.warn("WARNING: Invalid configuration detected: cannot use store-mode with Redis (i.e. High-Availability mode) and app recovery at the same time. Disable app recovery!");
+			}
+		}
+
+		if (environment.getProperty("spring.session.store-type", "").equalsIgnoreCase("redis")) {
+			if (!environment.getProperty("proxy.store-mode", "").equalsIgnoreCase("Redis")) {
+				// using Redis sessions, but not running in HA mode -> this does not make sense
+				// even with one replica, the HA mode should be used in order for the server to survive restarts (which is the reason Redis sessions are used)
+				log.warn("WARNING: Invalid configuration detected: user sessions are stored in Redis, but store-more is not set to Redis. Change store-mode so that app sessions are stored in Redis!");
+			}
+			if (environment.getProperty( PROPERTY_RECOVER_RUNNING_PROXIES, Boolean.class, false) ||
+					environment.getProperty( PROPERTY_RECOVER_RUNNING_PROXIES_FROM_DIFFERENT_CONFIG, Boolean.class, false) ) {
+				// using Redis sessions together with app recovery -> this does not make sense
+				// if already using Redis for sessions there is no reason to not store app sessions
+				log.warn("WARNING: Invalid configuration detected: user sessions are stored in Redis and App Recovery is enabled. Instead of using App Recovery, change store-mode so that app sessions are stored in Redis!");
+			}
+		}
+
+		boolean hideSpecDetails = environment.getProperty(PROP_API_SECURITY_HIDE_SPEC_DETAILS, Boolean.class, true);
+		if (!hideSpecDetails) {
+			log.warn("WARNING: Insecure configuration detected: The API is configured to return the full spec of proxies, " +
+					"this may contain sensitive values such as the container image, secret environment variables etc. " +
+					"Remove the proxy.api-security.hide-spec-details property to enable API security.");
+		}
+
 	}
 
 	@Autowired(required = false)
@@ -213,7 +280,7 @@ public class ContainerProxyApplication {
 	@Bean
 	@ConditionalOnProperty(name = "spring.session.store-type", havingValue = "redis")
 	public <S extends Session> SessionRegistry sessionRegistry(FindByIndexNameSessionRepository<S> sessionRepository) {
-		return new SpringSessionBackedSessionRegistry<S>(sessionRepository);
+		return new SpringSessionBackedSessionRegistry<>(sessionRepository);
 	}
 
 	@Bean
@@ -231,8 +298,14 @@ public class ContainerProxyApplication {
 	}
 
 	@Bean
-	public HeartbeatService heartbeatService(ActiveProxiesService activeProxiesService, SessionReActivatorService sessionReActivatorService) {
-		return new HeartbeatService(Arrays.asList(activeProxiesService, sessionReActivatorService));
+	public HeartbeatService heartbeatService(List<IHeartbeatProcessor> heartbeatProcessors) {
+		return new HeartbeatService(heartbeatProcessors);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public ActiveProxiesService activeProxiesService() {
+		return new ActiveProxiesService();
 	}
 
 	public static Properties getDefaultProperties() {
@@ -249,6 +322,7 @@ public class ContainerProxyApplication {
 
 		// disable logging of requests, since this reads part of the requests and therefore undertow is unable to correctly handle those requests
 		properties.put("logging.level.org.springframework.web.servlet.DispatcherServlet", "INFO");
+		properties.put("logging.level.io.fabric8.kubernetes.client.dsl.internal.VersionUsageUtils", "ERROR");
 
 		properties.put("spring.application.name", "ContainerProxy");
 
@@ -263,8 +337,9 @@ public class ContainerProxyApplication {
 		properties.put("management.server.port", "9090");
 		// enable prometheus endpoint by default (but not the exporter)
 		properties.put("management.endpoint.prometheus.enabled", "true");
+		properties.put("management.endpoint.recyclable.enabled", "true");
 		// include prometheus and health endpoint in exposure
-		properties.put("management.endpoints.web.exposure.include", "health,prometheus");
+		properties.put("management.endpoints.web.exposure.include", "health,prometheus,recyclable");
 
 		// ====================
 
@@ -284,6 +359,10 @@ public class ContainerProxyApplication {
 
 		properties.put("spring.config.use-legacy-processing", true);
 
+		// disable openapi docs and swagger ui
+		properties.put("springdoc.api-docs.enabled", false);
+		properties.put("springdoc.swagger-ui.enabled", false);
+
 		return properties;
 	}
 
@@ -291,6 +370,26 @@ public class ContainerProxyApplication {
 		app.setDefaultProperties(getDefaultProperties());
 		// See: https://github.com/keycloak/keycloak/pull/7053
 		System.setProperty("jdk.serialSetFilterAfterRead", "true");
+	}
+
+	@Bean
+	public GroupedOpenApi groupOpenApi() {
+		return GroupedOpenApi.builder()
+				.group("v1")
+				.addOpenApiCustomiser(openApi -> {
+					Set<String> endpoints = new HashSet<>(Arrays.asList("/app_direct_i/**", "/app_direct/**", "/app_proxy/{proxyId}/**", "/error"));
+					openApi.getPaths().entrySet().stream().filter(p -> endpoints.contains(p.getKey()))
+							.forEach(p -> {
+								p.getValue().setHead(null);
+								p.getValue().setPost(null);
+								p.getValue().setDelete(null);
+								p.getValue().setParameters(null);
+								p.getValue().setOptions(null);
+								p.getValue().setPut(null);
+								p.getValue().setPatch(null);
+							});
+				})
+				.build();
 	}
 
 }

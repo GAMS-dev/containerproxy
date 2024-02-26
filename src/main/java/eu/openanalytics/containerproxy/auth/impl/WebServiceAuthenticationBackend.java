@@ -1,7 +1,7 @@
 /**
  * ContainerProxy
  *
- * Copyright (C) 2016-2021 Open Analytics
+ * Copyright (C) 2016-2023 Open Analytics
  *
  * ===========================================================================
  *
@@ -190,14 +190,11 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 	}
 
 	@Override
- 	public void customizeContainerEnv(Map<String, String> env) {
- 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
- 		if (auth == null) return;
+ 	public void customizeContainerEnv(Authentication user, Map<String, String> env) {
+ 		WebServicePrincipal principal = (WebServicePrincipal) user.getPrincipal();
+ 		env.put(ENV_TOKEN, principal.getToken());
 
- 		WebServicePrincipal user = (WebServicePrincipal) auth.getPrincipal();
- 		env.put(ENV_TOKEN, user.getToken());
-
-		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && user.getPermissions().equals("0") ) {
+		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && principal.getPermissions().equals("0") ) {
 			env.put("MIRO_MODE", "readonly");
 		}
  	}

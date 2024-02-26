@@ -1,7 +1,7 @@
 /**
  * ContainerProxy
  *
- * Copyright (C) 2016-2021 Open Analytics
+ * Copyright (C) 2016-2023 Open Analytics
  *
  * ===========================================================================
  *
@@ -22,20 +22,19 @@ package eu.openanalytics.containerproxy.auth;
 
 import javax.inject.Inject;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.AbstractFactoryBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
-import eu.openanalytics.containerproxy.auth.impl.KerberosAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.KeycloakAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.LDAPAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.NoAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.OpenIDAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.SAMLAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.SimpleAuthenticationBackend;
-import eu.openanalytics.containerproxy.auth.impl.SocialAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.WebServiceAuthenticationBackend;
 
 /**
@@ -56,7 +55,7 @@ public class AuthenticationBackendFactory extends AbstractFactoryBean<IAuthentic
 	@Inject
 	private KeycloakAuthenticationBackend keycloakBackend;
 	
-	@Inject
+	@Autowired(required = false)
 	private SAMLAuthenticationBackend samlBackend;
 	
 	@Override
@@ -82,15 +81,9 @@ public class AuthenticationBackendFactory extends AbstractFactoryBean<IAuthentic
 		case OpenIDAuthenticationBackend.NAME:
 			backend = new OpenIDAuthenticationBackend();
 			break;
-		case SocialAuthenticationBackend.NAME:
-			backend = new SocialAuthenticationBackend();
-			break;
 		case KeycloakAuthenticationBackend.NAME:
 			return keycloakBackend;			
-		case KerberosAuthenticationBackend.NAME:
-			backend = new KerberosAuthenticationBackend();
-			break;
-		case WebServiceAuthenticationBackend.NAME:			
+		case WebServiceAuthenticationBackend.NAME:
 			backend = new WebServiceAuthenticationBackend();
 			break;
 		case SAMLAuthenticationBackend.NAME:
