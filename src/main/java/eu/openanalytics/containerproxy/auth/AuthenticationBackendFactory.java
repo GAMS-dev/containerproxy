@@ -72,22 +72,12 @@ public class AuthenticationBackendFactory extends AbstractFactoryBean<IAuthentic
 		case NoAuthenticationBackend.NAME:
 			backend = new NoAuthenticationBackend();
 			break;
-		case SimpleAuthenticationBackend.NAME:
-			backend = new SimpleAuthenticationBackend();
-			break;
-		case LDAPAuthenticationBackend.NAME:
-			backend = new LDAPAuthenticationBackend();
-			break;
 		case OpenIDAuthenticationBackend.NAME:
 			backend = new OpenIDAuthenticationBackend();
-			break;
-		case KeycloakAuthenticationBackend.NAME:
-			return keycloakBackend;			
+			break;	
 		case WebServiceAuthenticationBackend.NAME:
 			backend = new WebServiceAuthenticationBackend();
 			break;
-		case SAMLAuthenticationBackend.NAME:
-			return samlBackend;
 		}
 		if (backend == null) throw new RuntimeException("Unknown authentication type:" + type);
 		
