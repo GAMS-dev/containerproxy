@@ -1,7 +1,7 @@
 /**
  * ContainerProxy
  *
- * Copyright (C) 2016-2023 Open Analytics
+ * Copyright (C) 2016-2024 Open Analytics
  *
  * ===========================================================================
  *
@@ -18,21 +18,16 @@
  * You should have received a copy of the Apache License
  * along with this program.  If not, see <http://www.apache.org/licenses/>
  */
-/**
- * Modifications copyright (C) GAMS Development Corp. <support@gams.com>
- */
 package eu.openanalytics.containerproxy.auth.impl;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
+import eu.openanalytics.containerproxy.spec.expression.SpecExpressionContext;
+import eu.openanalytics.containerproxy.spec.expression.SpecExpressionResolver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -46,21 +41,20 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configurers.ExpressionUrlAuthorizationConfigurer.AuthorizedUrl;
-import org.springframework.security.core.AuthenticatedPrincipal;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.PathNotFoundException;
-
-import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
+import javax.inject.Inject;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Web service authentication method where user/password combinations are
@@ -68,134 +62,154 @@ import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
  */
 public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 
-	private final class WebServicePrincipal implements AuthenticatedPrincipal {
+    public static final String NAME = "webservice";
 
- 		private final String username;
- 		private final String token;
-		private final String permissions;
+    private static final String ENV_TOKEN = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
 
- 		private WebServicePrincipal(String username, String token, String permissions) {
- 			super();
- 			this.username = username;
- 			this.token = token;
-			this.permissions = permissions;
- 		}
+    private static final String PROP_PREFIX = "proxy.webservice.";
+    private static final String PROP_AUTHENTICATION_REQUEST_BODY = PROP_PREFIX + "authentication-request-body";
+    private static final String PROP_AUTHENTICATION_URL = PROP_PREFIX + "authentication-url";
 
- 		public String getToken() {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+
+    private final String requestBodyTemplate;
+    private final String authenticationUrl;
+    private final Boolean enableReadonlyMode;
+
+    @Inject
+    private SpecExpressionResolver specExpressionResolver;
+
+    public WebServiceAuthenticationBackend(Environment environment) {
+        requestBodyTemplate = environment.getProperty(PROP_AUTHENTICATION_REQUEST_BODY, "{\"username\":\"%s\",\"password\":\"%s\"}");
+        if (requestBodyTemplate == null) {
+            throw new IllegalStateException("Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_REQUEST_BODY + "' defined!");
+        }
+        authenticationUrl = environment.getProperty(PROP_AUTHENTICATION_URL, "http://auth:1234/login");
+        if (authenticationUrl == null) {
+            throw new IllegalStateException("Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_URL + "' defined!");
+        }
+        enableReadonlyMode = !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false);
+    }
+
+    @Override
+    public String getName() {
+        return NAME;
+    }
+
+    @Override
+    public boolean hasAuthorization() {
+        return true;
+    }
+
+    @Override
+    public void configureHttpSecurity(HttpSecurity http) {
+        // Nothing to do.
+    }
+
+    @Override
+    public void configureAuthenticationManagerBuilder(AuthenticationManagerBuilder auth) {
+        auth.authenticationProvider(new WebServiceAuthenticationProvider());
+    }
+
+    public class WebServiceAuthenticationProvider implements AuthenticationProvider {
+
+        @Override
+        public Authentication authenticate(Authentication authentication) throws AuthenticationException {
+            String username = authentication.getName();
+            String password = authentication.getCredentials().toString();
+
+            RestTemplate restTemplate = new RestTemplate();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            try {
+                String body = String.format(requestBodyTemplate, username, password);
+                ResponseEntity<String> result = restTemplate.exchange(authenticationUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                if (result.getStatusCode() == HttpStatus.OK) {
+                    User user = createUser(username, result.getBody());
+                    return new UsernamePasswordAuthenticationToken(user, "", user.getAuthorities());
+                }
+                throw new AuthenticationServiceException("Unknown response received " + result);
+            } catch (HttpClientErrorException e) {
+                throw new BadCredentialsException("Invalid username or password");
+            } catch (RestClientException e) {
+                throw new AuthenticationServiceException("Internal error " + e.getMessage());
+            }
+        }
+
+        @Override
+        public boolean supports(Class<?> authentication) {
+            // Return true if this AuthenticationProvider supports the provided authentication class
+            return authentication.equals(UsernamePasswordAuthenticationToken.class);
+        }
+
+        private User createUser(String username, String body) throws AuthenticationException {
+            if (body == null) {
+                throw new AuthenticationServiceException("No body returned by webservice");
+            }
+            JsonNode jsonResponse = null;
+            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+            try {
+                jsonResponse = objectMapper.readTree(body);
+                SpecExpressionContext context = SpecExpressionContext.create(jsonResponse);
+                List<String> groups = specExpressionResolver.evaluateToList(List.of("#{json.get('roles')}"), context);
+                for (String role: groups) {
+                    String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
+                    authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
+                }
+                String token = specExpressionResolver.evaluateToString("#{json.get('token')}", context);
+                String permissions = specExpressionResolver.evaluateToString("#{json.get('permissions')}", context);
+                return new WebServiceUser(username, body, jsonResponse, authorities, token, permissions);
+            } catch (JsonProcessingException e) {
+                logger.warn("Invalid json response returned by web service, response is: " + body, e);
+                throw new AuthenticationServiceException("Internal error " + e.getMessage());
+            }
+        }
+    }
+
+    public static class WebServiceUser extends User {
+
+        private final String response;
+        private final JsonNode jsonResponse;
+        private final String token;
+        private final String permissions;
+
+        public WebServiceUser(String username, String response, JsonNode jsonResponse, Collection<? extends GrantedAuthority> authorities, String token, String permissions) {
+            super(username, "", authorities);
+            this.response = response;
+            this.jsonResponse = jsonResponse;
+            this.token = token;
+            this.permissions = permissions;
+        }
+
+        public String getResponse() {
+            return response;
+        }
+
+        public JsonNode getJsonResponse() {
+            return jsonResponse;
+        }
+
+        public String getToken() {
  			return token;
  		}
 
 		public String getPermissions() {
  			return permissions;
  		}
+    }
 
- 		@Override
- 		public String getName() {
- 			return username;
- 		}
-
- 		@Override
- 		public String toString() {
- 			return getName();
- 		}
-
- 	}
-	
-	public static final String NAME = "webservice";
-	private static final String ENV_TOKEN = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
-
-	private static final String PROPERTY_PREFIX = "proxy.webservice.";
-	
-	@Inject
-	private Environment environment;
-
-	@Override
-	public String getName() {
-		return NAME;
-	}
-
-	@Override
-	public boolean hasAuthorization() {
-		return true;
-	}
-
-	@Override
-	public void configureHttpSecurity(HttpSecurity http, AuthorizedUrl anyRequestConfigurer) throws Exception {
-		// Nothing to do.
-	}
-
-	@Override
-	public void configureAuthenticationManagerBuilder(AuthenticationManagerBuilder auth) throws Exception {
-		AuthenticationProvider authenticationProvider = new AuthenticationProvider() {
-
-			@Override
-			public Authentication authenticate(Authentication authentication) throws AuthenticationException {
- 				String username = authentication.getPrincipal().toString();
- 				Object credentials = authentication.getCredentials();
- 				String password = credentials == null ? null : credentials.toString();
-
-				RestTemplate restTemplate = new RestTemplate();
-
-				HttpHeaders headers = new HttpHeaders();
-				headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-				headers.setContentType(MediaType.APPLICATION_JSON);
-
-				try {
-					String body = String.format(environment.getProperty(PROPERTY_PREFIX + "authentication-request-body", ""), username, password);
-					String loginUrl = environment.getProperty(PROPERTY_PREFIX + "authentication-url");
-					ResponseEntity<String> result = restTemplate.exchange(loginUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
-					if (result.getStatusCode() == HttpStatus.OK) {
-						String token = null;
- 						String tokenJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-token");
- 						if (tokenJsonPath != null) {
- 							token = JsonPath.parse(result.getBody()).read(tokenJsonPath);
- 						}
-
-						String permissions = "";
-
-						try {
-							permissions = JsonPath.parse(result.getBody()).read("$.permissions");
-						} catch(PathNotFoundException e) {
-							// old versions of auth container might not return this field
-						}
-
- 						Set<GrantedAuthority> authorities = new HashSet<>();
- 						String roleJsonPath = environment.getProperty(PROPERTY_PREFIX + "authentication-response-roles");
- 						if (roleJsonPath != null) {
- 							List<String> roles = JsonPath.parse(result.getBody()).read(roleJsonPath);
- 							for (String role: roles) {
- 								String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
- 								authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
- 							}	
- 						}
-
- 						return new UsernamePasswordAuthenticationToken(new WebServicePrincipal(username, token, permissions), password, authorities);
-					}
-					throw new AuthenticationServiceException("Unknown response received " + result);				
-				} catch (HttpClientErrorException e) {
-					throw new BadCredentialsException("Invalid username or password");
-				} catch (RestClientException e) {
-					throw new AuthenticationServiceException("Internal error " + e.getMessage());
-				}
-			}
-
- 			@Override
- 			public boolean supports(Class<?> authentication) {
- 				return (UsernamePasswordAuthenticationToken.class
- 						.isAssignableFrom(authentication));
-
-			}
-		};
-		auth.authenticationProvider(authenticationProvider);
-	}
-
-	@Override
+    @Override
  	public void customizeContainerEnv(Authentication user, Map<String, String> env) {
- 		WebServicePrincipal principal = (WebServicePrincipal) user.getPrincipal();
+ 		WebServiceUser principal = (WebServiceUser) user.getPrincipal();
  		env.put(ENV_TOKEN, principal.getToken());
 
-		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && principal.getPermissions().equals("0") ) {
+		if ( enableReadonlyMode && principal.getPermissions().equals("0") ) {
 			env.put("MIRO_MODE", "readonly");
 		}
  	}
+
 }

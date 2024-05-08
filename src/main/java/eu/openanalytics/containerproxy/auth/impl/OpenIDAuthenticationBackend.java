@@ -1,7 +1,7 @@
 /**
  * ContainerProxy
  *
- * Copyright (C) 2016-2023 Open Analytics
+ * Copyright (C) 2016-2024 Open Analytics
  *
  * ===========================================================================
  *
@@ -20,7 +20,11 @@
  */
 package eu.openanalytics.containerproxy.auth.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import eu.openanalytics.containerproxy.auth.IAuthenticationBackend;
+import eu.openanalytics.containerproxy.auth.impl.oidc.AccessTokenDecoder;
 import eu.openanalytics.containerproxy.auth.impl.oidc.OpenIdReAuthorizeFilter;
 import eu.openanalytics.containerproxy.spec.expression.SpecExpressionContext;
 import eu.openanalytics.containerproxy.spec.expression.SpecExpressionResolver;
@@ -33,11 +37,15 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configurers.ExpressionUrlAuthorizationConfigurer.AuthorizedUrl;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
@@ -55,34 +63,22 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
+import org.springframework.security.oauth2.core.oidc.StandardClaimAccessor;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
-import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.SimpleUrlLogoutSuccessHandler;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-
-import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.PathNotFoundException;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import javax.inject.Inject;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -95,184 +91,181 @@ import static eu.openanalytics.containerproxy.auth.impl.oidc.OpenIDConfiguration
 
 public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 
-	public static final String NAME = "openid";
+    public static final String NAME = "openid";
 
-	private static final String REG_ID = "miroserver";
-	private static final String ENV_TOKEN_NAME = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
-	
-	private final Logger log = LogManager.getLogger(OpenIDAuthenticationBackend.class);
-	
-	@Inject
-	private Environment environment;
+    private static final String ENV_TOKEN_NAME = "SHINYPROXY_WEBSERVICE_ACCESS_TOKEN";
+    private static OAuth2AuthorizedClientService oAuth2AuthorizedClientService;
+    private static AccessTokenDecoder accessTokenDecoder;
+    private static final Logger log = LogManager.getLogger(OpenIDAuthenticationBackend.class);
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    @Inject
+    private Environment environment;
+    @Inject
+    private ClientRegistrationRepository clientRegistrationRepo;
+    @Inject
+    @Lazy
+    private SavedRequestAwareAuthenticationSuccessHandler successHandler;
+    @Inject
+    private OpenIdReAuthorizeFilter openIdReAuthorizeFilter;
+    @Inject
+    private SpecExpressionResolver specExpressionResolver;
+    @Inject
+    private ContextPathHelper contextPathHelper;
 
-	@Inject
-	private ClientRegistrationRepository clientRegistrationRepo;
+    private static OAuth2AuthorizedClient refreshClient(String principalName) {
+        return oAuth2AuthorizedClientService.loadAuthorizedClient(REG_ID, principalName);
+    }
 
-	@Inject
-	@Lazy
-	private SavedRequestAwareAuthenticationSuccessHandler successHandler;
+    @Autowired
+    public void setAccessTokenDecoder(AccessTokenDecoder accessTokenDecoder) {
+        OpenIDAuthenticationBackend.accessTokenDecoder = accessTokenDecoder;
+    }
 
-	private static OAuth2AuthorizedClientService oAuth2AuthorizedClientService;
+    @Autowired
+    public void setOAuth2AuthorizedClientService(OAuth2AuthorizedClientService oAuth2AuthorizedClientService) {
+        OpenIDAuthenticationBackend.oAuth2AuthorizedClientService = oAuth2AuthorizedClientService;
+    }
 
-	@Autowired
-	public void setOAuth2AuthorizedClientService(OAuth2AuthorizedClientService oAuth2AuthorizedClientService)  {
-		OpenIDAuthenticationBackend.oAuth2AuthorizedClientService = oAuth2AuthorizedClientService;
-	}
+    @Override
+    public String getName() {
+        return NAME;
+    }
 
-	@Inject
-	private OpenIdReAuthorizeFilter openIdReAuthorizeFilter;
+    @Override
+    public boolean hasAuthorization() {
+        return true;
+    }
 
-	@Override
-	public String getName() {
-		return NAME;
-	}
+    @Override
+    public void configureHttpSecurity(HttpSecurity http) throws Exception {
+        http
+            .oauth2Login(oauth2 -> oauth2
+                .loginPage("/login")
+                .successHandler(successHandler)
+                .clientRegistrationRepository(clientRegistrationRepo)
+                .authorizedClientService(oAuth2AuthorizedClientService)
+                .authorizationEndpoint(authorizationEndpoint -> authorizationEndpoint
+                    .authorizationRequestResolver(authorizationRequestResolver())
+                )
+                .failureHandler((request, response, exception) -> {
+                    log.error(exception);
+                    response.sendRedirect(ServletUriComponentsBuilder
+                        .fromCurrentContextPath()
+                        .path("/auth-error")
+                        .build()
+                        .toUriString());
+                })
+                .userInfoEndpoint(userinfo -> userinfo
+                    .oidcUserService(createOidcUserService())
+                )
+            )
+            .addFilterAfter(openIdReAuthorizeFilter, UsernamePasswordAuthenticationFilter.class);
+    }
 
-	@Override
-	public boolean hasAuthorization() {
-		return true;
-	}
-	
-	@Override
-	public void configureHttpSecurity(HttpSecurity http, AuthorizedUrl anyRequestConfigurer) throws Exception {
-		anyRequestConfigurer.authenticated();
+    private OAuth2AuthorizationRequestResolver authorizationRequestResolver() {
+        Boolean usePkce = environment.getProperty("proxy.openid.with-pkce", Boolean.class, false);
+        DefaultOAuth2AuthorizationRequestResolver authorizationRequestResolver = new DefaultOAuth2AuthorizationRequestResolver(clientRegistrationRepo,
+            OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI);
 
-		http
-			.oauth2Login()
-				.loginPage("/login")
-				.successHandler(successHandler)
-				.clientRegistrationRepository(clientRegistrationRepo)
-				.authorizedClientService(oAuth2AuthorizedClientService)
-				.authorizationEndpoint()
-					.authorizationRequestResolver(authorizationRequestResolver())
-				.and()
-				.failureHandler(new AuthenticationFailureHandler() {
+        if (usePkce) {
+            authorizationRequestResolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+        }
 
-					@Override
-					public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
-							AuthenticationException exception) throws IOException, ServletException {
-						log.error(exception);
-						response.sendRedirect(ServletUriComponentsBuilder.fromCurrentContextPath().path("/auth-error").build().toUriString());
-					}
-					
-				})
-				.userInfoEndpoint()
-					.oidcUserService(createOidcUserService())
-				.and()
-			.and()
-			.addFilterAfter(openIdReAuthorizeFilter, UsernamePasswordAuthenticationFilter.class);
-	}
+        return authorizationRequestResolver;
+    }
 
-	private OAuth2AuthorizationRequestResolver authorizationRequestResolver() {
-		Boolean usePkce = environment.getProperty("proxy.openid.with-pkce", Boolean.class, false);
-		DefaultOAuth2AuthorizationRequestResolver authorizationRequestResolver = new DefaultOAuth2AuthorizationRequestResolver(clientRegistrationRepo,
-				OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI);
+    @Override
+    public void configureAuthenticationManagerBuilder(AuthenticationManagerBuilder auth) {
+        // Nothing to do.
+    }
 
-		if (usePkce) {
-			authorizationRequestResolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
-		}
+    public String getLoginRedirectURI() {
+        return contextPathHelper.withoutEndingSlash()
+            + OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI
+            + "/" + REG_ID;
+    }
 
-		return authorizationRequestResolver;
-	}
+    @Override
+    public String getLogoutSuccessURL() {
+        String logoutURL = environment.getProperty("proxy.openid.logout-url", "/logout-success");
+        if (logoutURL == null || logoutURL
+            .trim()
+            .isEmpty()) logoutURL = IAuthenticationBackend.super.getLogoutSuccessURL();
+        return logoutURL;
+    }
 
-	@Override
-	public void configureAuthenticationManagerBuilder(AuthenticationManagerBuilder auth) throws Exception {
-		// Nothing to do.
-	}
-
-	public String getLoginRedirectURI() {
-		return ContextPathHelper.withoutEndingSlash()
-				+ OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI 
-				+ "/" + REG_ID;
-	}
-	
-	@Override
-	public String getLogoutSuccessURL() {
-		String logoutURL = environment.getProperty("proxy.openid.logout-url", "/logout-success");
-		if (logoutURL == null || logoutURL.trim().isEmpty()) logoutURL = IAuthenticationBackend.super.getLogoutSuccessURL();
-		return logoutURL;
-	}
-	
-	@Override
-	public void customizeContainerEnv(Authentication user, Map<String, String> env) {
-		OAuth2AuthorizedClient client = refreshClient(user.getName());
-		if (client == null || client.getAccessToken() == null) return;
-		CustomNameOidcUser oidcUser = (CustomNameOidcUser) user.getPrincipal();
+    @Override
+    public void customizeContainerEnv(Authentication user, Map<String, String> env) {
+        OAuth2AuthorizedClient client = refreshClient(user.getName());
+        if (client == null || client.getAccessToken() == null) return;
+        CustomNameOidcUser oidcUser = (CustomNameOidcUser) user.getPrincipal();
  		env.put(ENV_TOKEN_NAME, oidcUser.getToken());
-
-		if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && oidcUser.getPermissions().equals("0") ) {
+        
+        if ( !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false) && oidcUser.getPermissions().equals("0") ) {
 			env.put("MIRO_MODE", "readonly");
 		}
-	}
+    }
 
-	@Inject
-	private SpecExpressionResolver specExpressionResolver;
+    @Override
+    public LogoutSuccessHandler getLogoutSuccessHandler() {
+        return (httpServletRequest, httpServletResponse, authentication) -> {
+            String resolvedLogoutUrl;
+            if (authentication != null) {
+                SpecExpressionContext context = SpecExpressionContext.create(authentication.getPrincipal(), authentication.getCredentials());
+                resolvedLogoutUrl = specExpressionResolver.evaluateToString(getLogoutSuccessURL(), context);
+            } else {
+                resolvedLogoutUrl = getLogoutSuccessURL();
+            }
 
-	@Override
-	public LogoutSuccessHandler getLogoutSuccessHandler() {
-		return (httpServletRequest, httpServletResponse, authentication) -> {
-			String resolvedLogoutUrl;
-			if (authentication != null) {
-				SpecExpressionContext context = SpecExpressionContext.create(authentication.getPrincipal(), authentication.getCredentials());
-				resolvedLogoutUrl = specExpressionResolver.evaluateToString(getLogoutSuccessURL(), context);
-			} else {
-				resolvedLogoutUrl = getLogoutSuccessURL();
-			}
+            SimpleUrlLogoutSuccessHandler delegate = new SimpleUrlLogoutSuccessHandler();
+            delegate.setDefaultTargetUrl(resolvedLogoutUrl);
+            delegate.onLogoutSuccess(httpServletRequest, httpServletResponse, authentication);
+        };
+    }
 
-			SimpleUrlLogoutSuccessHandler delegate = new SimpleUrlLogoutSuccessHandler();
-			delegate.setDefaultTargetUrl(resolvedLogoutUrl);
-			delegate.onLogoutSuccess(httpServletRequest, httpServletResponse, authentication);
-		};
-	}
+    protected OidcUserService createOidcUserService() {
+        // Use a custom UserService that supports the 'emails' array attribute.
+        return new OidcUserService() {
+            @Override
+            public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
+                OidcUser user;
+                try {
+                    user = super.loadUser(userRequest);
+                } catch (IllegalArgumentException ex) {
+                    log.warn("Error while loading user info: {}", ex.getMessage());
+                    throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "Error while loading user info", ex);
+                } catch (OAuth2AuthenticationException ex) {
+                    log.warn("Error while loading user info: {}", ex.getMessage());
+                    throw ex;
+                }
 
-	protected OidcUserService createOidcUserService() {
-		// Use a custom UserService that supports the 'emails' array attribute.
-		return new OidcUserService() {
-			@Override
-			public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
-			    OidcUser user;
-				try {
-					user = super.loadUser(userRequest);
-				} catch (IllegalArgumentException ex) {
-					log.warn("Error while loading user info: {}", ex.getMessage());
-					throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "Error while loading user info", ex);
-				} catch (OAuth2AuthenticationException ex) {
-					log.warn("Error while loading user info: {}", ex.getMessage());
-					throw ex;
-				}
+                String nameAttributeKey = environment.getProperty("proxy.openid.username-attribute", "email");
 
-				String nameAttributeKey = environment.getProperty("proxy.openid.username-attribute", "email");
-
-				RestTemplate restTemplate = new RestTemplate();
+                RestTemplate restTemplate = new RestTemplate();
 
 				HttpHeaders headers = new HttpHeaders();
-				headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-				headers.setContentType(MediaType.APPLICATION_JSON);
+                headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                headers.setContentType(MediaType.APPLICATION_JSON);
 
 				try {
 					String body = String.format("{\"id_token\": \"%s\"}", user.getIdToken().getTokenValue());
-					String loginUrl = environment.getProperty("proxy.webservice.authentication-url") + "/oidc";
+					String loginUrl = environment.getProperty("proxy.webservice.authentication-url", "http://auth:1234/login") + "/oidc";
 					ResponseEntity<String> result = restTemplate.exchange(loginUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
 					if (result.getStatusCode() != HttpStatus.OK) {
 						throw new OAuth2AuthenticationException(new OAuth2Error("invalid_response", "Unknown response received " + result, ""));
 					}
-					String token = JsonPath.parse(result.getBody()).read("$.token");
-
-					String permissions = "";
-
-					try {
-						permissions = JsonPath.parse(result.getBody()).read("$.permissions");
-					} catch(PathNotFoundException e) {
-						// old versions of auth container might not return this field
-					}
-
-					String username = JsonPath.parse(result.getBody()).read("$.username");
+                    JsonNode jsonResponse = objectMapper.readTree(result.getBody());
+                    SpecExpressionContext context = SpecExpressionContext.create(jsonResponse);
+					String token = specExpressionResolver.evaluateToString("#{json.get('token')}", context);
+                    String permissions = specExpressionResolver.evaluateToString("#{json.get('permissions')}", context);
+                    String username = specExpressionResolver.evaluateToString("#{json.get('username')}", context);
 
 					Set<GrantedAuthority> authorities = new HashSet<>();
-					List<String> roles = JsonPath.parse(result.getBody()).read("$.roles");
-					for (String role: roles) {
-						String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
-						authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
-					}
+					List<String> groups = specExpressionResolver.evaluateToList(List.of("#{json.get('roles')}"), context);
+                    for (String role: groups) {
+                        String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
+                        authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
+                    }
 					return new CustomNameOidcUser(authorities,
 							user.getIdToken(),
 							user.getUserInfo(),
@@ -281,26 +274,23 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 							token,
 							permissions
 					);
-				} catch (HttpClientErrorException ex) {
+                } catch (HttpClientErrorException ex) {
 					throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "HttpClientErrorException while trying to log in to Engine", ex);
 				} catch (RestClientException ex) {
 					throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "RestClientException while trying to log in to Engine", ex);
-				}
-			}
-		};
-	}
+				} catch(JsonProcessingException ex) {
+                    throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), "JsonProcessingException while trying to log in to Engine", ex);
+                }
+            }
+        };
+    }
 
-	private static OAuth2AuthorizedClient refreshClient(String principalName) {
-		return oAuth2AuthorizedClientService.loadAuthorizedClient(REG_ID, principalName);
-	}
+    public static class CustomNameOidcUser extends DefaultOidcUser {
 
+        private static final long serialVersionUID = 7563253562760236634L;
+        private static final String ID_ATTR_EMAILS = "emails";
 
-	public static class CustomNameOidcUser extends DefaultOidcUser {
-
-		private static final long serialVersionUID = 7563253562760236634L;
-		private static final String ID_ATTR_EMAILS = "emails";
-		
-		private final String customName;
+        private final String customName;
 		private final String token;
 		private final String permissions;
 
@@ -317,7 +307,7 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 			return customName;
 		}
 
-		public String getToken() {
+        public String getToken() {
 			return token;
 		}
 
@@ -325,12 +315,33 @@ public class OpenIDAuthenticationBackend implements IAuthenticationBackend {
 			return permissions;
 		}
 
-		public String getRefreshToken() {
-			OAuth2AuthorizedClient client = refreshClient(getName());
-			if (client == null || client.getRefreshToken() == null) {
-				return null;
-			}
-			return client.getRefreshToken().getTokenValue();
-		}
-	}
+        public String getRefreshToken() {
+            OAuth2AuthorizedClient client = refreshClient(getName());
+            if (client == null || client.getRefreshToken() == null) {
+                return null;
+            }
+            return client
+                .getRefreshToken()
+                .getTokenValue();
+        }
+
+        public String getAccessToken() {
+            OAuth2AuthorizedClient client = refreshClient(getName());
+            if (client == null || client.getAccessToken() == null) {
+                return null;
+            }
+            return client
+                .getAccessToken()
+                .getTokenValue();
+        }
+
+        public Jwt getAccessTokenAsJwt() {
+            try {
+                return accessTokenDecoder.decode(getAccessToken());
+            } catch (JwtException e) {
+                log.warn("Failed to decode access token as JWT", e);
+                throw e;
+            }
+        }
+    }
 }
