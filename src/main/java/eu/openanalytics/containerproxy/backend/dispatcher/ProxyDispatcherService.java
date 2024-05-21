@@ -56,20 +56,7 @@ public class ProxyDispatcherService {
     @PostConstruct
     public void init() {
         for (ProxySpec proxySpec : proxySpecProvider.getSpecs()) {
-            if (ProxySharingDispatcher.supportSpec(proxySpec)) {
-                ISeatStore seatStore = storeFactory.createSeatStore(proxySpec.getId());
-                IDelegateProxyStore delegateProxyStore = storeFactory.createDelegateProxyStore(proxySpec.getId());
-
-                ProxySharingScaler proxySharingScaler = createProxySharingScaler(seatStore, proxySpec, delegateProxyStore);
-                createBean(proxySharingScaler, "proxySharingScaler_" + proxySpec.getId());
-
-                ProxySharingDispatcher proxySharingDispatcher = new ProxySharingDispatcher(proxySpec, delegateProxyStore, seatStore);
-                createBean(proxySharingDispatcher, "proxySharingDispatcher_" + proxySpec.getId());
-
-                dispatchers.put(proxySpec.getId(), proxySharingDispatcher);
-            } else {
-                dispatchers.put(proxySpec.getId(), defaultProxyDispatcher);
-            }
+            addDispatcher(proxySpec);
         }
     }
 
@@ -78,6 +65,10 @@ public class ProxyDispatcherService {
     }
 
     public IProxyDispatcher getDispatcher(String specId) {
+        if (!dispatchers.containsKey(specId)) {
+            ProxySpec proxySpec = proxySpecProvider.getSpec(specId);
+            addDispatcher(proxySpec);
+        }
         return dispatchers.get(specId);
     }
 
@@ -85,6 +76,23 @@ public class ProxyDispatcherService {
         beanFactory.autowireBean(bean);
         Object initializedBean = beanFactory.initializeBean(bean, beanName);
         beanFactory.registerSingleton(beanName, initializedBean);
+    }
+
+    private void addDispatcher(ProxySpec proxySpec) {
+        if (ProxySharingDispatcher.supportSpec(proxySpec)) {
+            ISeatStore seatStore = storeFactory.createSeatStore(proxySpec.getId());
+            IDelegateProxyStore delegateProxyStore = storeFactory.createDelegateProxyStore(proxySpec.getId());
+
+            ProxySharingScaler proxySharingScaler = createProxySharingScaler(seatStore, proxySpec, delegateProxyStore);
+            createBean(proxySharingScaler, "proxySharingScaler_" + proxySpec.getId());
+
+            ProxySharingDispatcher proxySharingDispatcher = new ProxySharingDispatcher(proxySpec, delegateProxyStore, seatStore);
+            createBean(proxySharingDispatcher, "proxySharingDispatcher_" + proxySpec.getId());
+
+            dispatchers.put(proxySpec.getId(), proxySharingDispatcher);
+        } else {
+            dispatchers.put(proxySpec.getId(), defaultProxyDispatcher);
+        }
     }
 
 }
