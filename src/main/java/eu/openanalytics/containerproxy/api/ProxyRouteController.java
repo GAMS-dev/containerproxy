@@ -47,11 +47,11 @@ public class ProxyRouteController extends BaseController {
         this.mappingManager = mappingManager;
         this.userAndTargetIdProxyIndex = userAndTargetIdProxyIndex;
         this.userService = userService;
-        String baseURL = contextPathHelper.withEndingSlash() + "api/route/";
+        String baseURL = contextPathHelper.withEndingSlash() + "api_int/route/";
         baseUrlLength = baseURL.length() + DefaultTargetMappingStrategy.TARGET_ID_LENGTH + 1;
     }
 
-    @RequestMapping(value = "/api/route/{targetId}/**")
+    @RequestMapping(value = "/api_int/route/{targetId}/**")
     public void route(@PathVariable String targetId, HttpServletRequest request, HttpServletResponse response) {
         try {
             if (request.getRequestURI().length() < baseUrlLength) {

@@ -42,7 +42,7 @@ public class NoAuthenticationTest {
                 .build();
 
             Request request = new Request.Builder()
-                .url(baseUrl + "/api/proxyspec")
+                .url(baseUrl + "/api_int/proxyspec")
                 .build();
 
             try (Response response = client.newCall(request).execute()) {

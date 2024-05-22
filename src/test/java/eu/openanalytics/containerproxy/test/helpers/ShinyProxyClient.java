@@ -81,7 +81,7 @@ public class ShinyProxyClient {
         }
         Request request = new Request.Builder()
             .post(body)
-            .url(baseUrl + "/api/proxy/" + specId)
+            .url(baseUrl + "/api_int/proxy/" + specId)
             .build();
 
         JsonObject response = call(request, 201);
@@ -107,7 +107,7 @@ public class ShinyProxyClient {
         }
         Request request = new Request.Builder()
             .post(body)
-            .url(baseUrl + "/api/proxy/" + specId)
+            .url(baseUrl + "/api_int/proxy/" + specId)
             .build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -127,7 +127,7 @@ public class ShinyProxyClient {
         for (int i = 0; i < 3; i++) {
             Request request = new Request.Builder()
                 .get()
-                .url(baseUrl + "/api/proxy/" + proxyId + "/status?watch=true&timeout=60")
+                .url(baseUrl + "/api_int/proxy/" + proxyId + "/status?watch=true&timeout=60")
                 .build();
 
             JsonObject response = call(request, 200);
@@ -142,7 +142,7 @@ public class ShinyProxyClient {
     public void stopProxy(String proxyId) {
         Request request = new Request.Builder()
             .put(RequestBody.create("{\"status\":\"Stopping\"}", JSON))
-            .url(baseUrl + "/api/proxy/" + proxyId + "/status")
+            .url(baseUrl + "/api_int/proxy/" + proxyId + "/status")
             .build();
 
         call(request, 200);
@@ -155,7 +155,7 @@ public class ShinyProxyClient {
     public HashSet<JsonObject> getProxies() {
         Request request = new Request.Builder()
             .get()
-            .url(baseUrl + "/api/proxy")
+            .url(baseUrl + "/api_int/proxy")
             .build();
 
         JsonObject response = call(request, 200);
@@ -177,7 +177,7 @@ public class ShinyProxyClient {
             try {
                 Request request = new Request.Builder()
                     .get()
-                    .url(baseUrl + "/api/route/" + id + "/")
+                    .url(baseUrl + "/api_int/route/" + id + "/")
                     .build();
 
                 try (Response response = client.newCall(request).execute()) {

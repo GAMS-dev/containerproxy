@@ -43,7 +43,7 @@ public class FixedRequestCacheAwareFilter extends RequestCacheAwareFilter {
     private static final RequestMatcher REQUEST_MATCHER = new OrRequestMatcher(
         new AntPathRequestMatcher("/app_proxy/**"),
         new AntPathRequestMatcher("/app_direct/**"),
-        new AntPathRequestMatcher("/api/route/**")
+        new AntPathRequestMatcher("/api_int/route/**")
     );
     private final RequestCacheAwareFilter delegate;
 

@@ -257,7 +257,7 @@ public class ContainerProxyApplication {
     public UndertowServletWebServerFactory servletContainer() {
         UndertowServletWebServerFactory factory = new UndertowServletWebServerFactory();
         factory.addDeploymentInfoCustomizers(info -> {
-            info.setPreservePathOnForward(false); // required for the /api/route/{id}/ endpoint to work properly
+            info.setPreservePathOnForward(false); // required for the /api_int/route/{id}/ endpoint to work properly
             if (Boolean.parseBoolean(environment.getProperty("logging.requestdump", "false"))) {
                 info.addOuterHandlerChainWrapper(Handlers::requestDump);
             }

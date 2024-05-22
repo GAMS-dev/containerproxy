@@ -47,7 +47,7 @@ public class SimpleAuthenticationTest {
                 .build();
 
             Request request = new Request.Builder()
-                .url(baseUrl + "/api/proxy")
+                .url(baseUrl + "/api_int/proxy")
                 .build();
 
             try (Response response = client.newCall(request).execute()) {
@@ -73,7 +73,7 @@ public class SimpleAuthenticationTest {
 
 
             Request request = new Request.Builder()
-                .url(baseUrl + "/api/proxy")
+                .url(baseUrl + "/api_int/proxy")
                 .header("Accept", "text/html")
                 .build();
 

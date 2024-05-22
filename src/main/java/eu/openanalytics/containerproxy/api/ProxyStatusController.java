@@ -113,7 +113,7 @@ public class ProxyStatusController {
             })
     })
     @ResponseBody
-    @RequestMapping(value = "/api/proxy/{proxyId}/status", method = RequestMethod.PUT)
+    @RequestMapping(value = "/api_int/proxy/{proxyId}/status", method = RequestMethod.PUT)
     public ResponseEntity<ApiResponse<Void>> changeProxyStatus(@PathVariable String proxyId, @RequestBody ChangeProxyStatusDto changeProxyStateDto) {
         Proxy proxy = proxyService.getUserProxy(proxyId);
         if (proxy == null) {
@@ -182,7 +182,7 @@ public class ProxyStatusController {
             }),
     })
     @JsonView(Views.UserApi.class)
-    @RequestMapping(value = "/api/proxy/{proxyId}/status", method = RequestMethod.GET)
+    @RequestMapping(value = "/api_int/proxy/{proxyId}/status", method = RequestMethod.GET)
     public DeferredResult<ResponseEntity<ApiResponse<Proxy>>> getProxyStatus(@PathVariable String proxyId,
                                                                              @Parameter(description = "Whether to watch for the status to change to Up, Stopped or Paused.")
                                                                              @RequestParam(value = "watch", required = false, defaultValue = "false") Boolean watch,

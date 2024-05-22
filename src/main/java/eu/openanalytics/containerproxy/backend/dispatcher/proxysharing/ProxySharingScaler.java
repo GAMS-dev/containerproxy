@@ -85,7 +85,7 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 
 public class ProxySharingScaler {
 
-    protected static String publicPathPrefix = "/api/route/";
+    protected static String publicPathPrefix = "/api_int/route/";
     protected final ExecutorService executor = ExecutorServiceFactory.create("ProxySharingScaler");
     protected final IDelegateProxyStore delegateProxyStore;
     protected final ISeatStore seatStore;

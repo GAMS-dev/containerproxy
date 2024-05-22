@@ -86,7 +86,7 @@ public class TestIntegrationProxySharing {
 
                 // target id should be different from proxy id
                 Assertions.assertNotEquals(proxy.getTargetId(), proxy.getId());
-                Assertions.assertEquals("/api/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
+                Assertions.assertEquals("/api_int/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
                 Assertions.assertEquals(proxy.getTargetId(), proxy.getRuntimeValue(TargetIdKey.inst));
 
                 // check DelegateProxy
@@ -160,7 +160,7 @@ public class TestIntegrationProxySharing {
                 inst.client.stopProxy(id);
             }
         } finally {
-            ProxySharingScaler.setPublicPathPrefix("/api/route/");
+            ProxySharingScaler.setPublicPathPrefix("/api_int/route/");
         }
     }
 
@@ -180,7 +180,7 @@ public class TestIntegrationProxySharing {
 
                 // target id should be different from proxy id
                 Assertions.assertNotEquals(proxy.getTargetId(), proxy.getId());
-                Assertions.assertEquals("/api/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
+                Assertions.assertEquals("/api_int/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
                 Assertions.assertEquals(proxy.getTargetId(), proxy.getRuntimeValue(TargetIdKey.inst));
                 Assertions.assertNotNull(proxy.getRuntimeValue(SeatIdKey.inst));
 
@@ -237,7 +237,7 @@ public class TestIntegrationProxySharing {
                 // try to access proxy
                 Request request = new Request.Builder()
                     .get()
-                    .url(inst.client.getBaseUrl() + "/api/route/" + proxy.getTargetId() + "/")
+                    .url(inst.client.getBaseUrl() + "/api_int/route/" + proxy.getTargetId() + "/")
                     .build();
 
                 try (Response response = inst.client.newCall(request).execute()) {
@@ -278,7 +278,7 @@ public class TestIntegrationProxySharing {
 
                     // target id should be different from proxy id
                     Assertions.assertNotEquals(proxy.getTargetId(), proxy.getId());
-                    Assertions.assertEquals("/api/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
+                    Assertions.assertEquals("/api_int/route/" + proxy.getTargetId() + "/", proxy.getRuntimeValue(PublicPathKey.inst));
                     Assertions.assertEquals(proxy.getTargetId(), proxy.getRuntimeValue(TargetIdKey.inst));
                     Assertions.assertNotNull(proxy.getRuntimeValue(SeatIdKey.inst));
 
