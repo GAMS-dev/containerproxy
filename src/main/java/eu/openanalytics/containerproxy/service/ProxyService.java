@@ -24,6 +24,7 @@ import eu.openanalytics.containerproxy.ContainerProxyException;
 import eu.openanalytics.containerproxy.ProxyFailedToStartException;
 import eu.openanalytics.containerproxy.ProxyStartValidationException;
 import eu.openanalytics.containerproxy.backend.dispatcher.ProxyDispatcherService;
+import eu.openanalytics.containerproxy.backend.kubernetes.KubernetesSpecExtension;
 import eu.openanalytics.containerproxy.backend.strategy.IProxyTestStrategy;
 import eu.openanalytics.containerproxy.event.ProxyPauseEvent;
 import eu.openanalytics.containerproxy.event.ProxyResumeEvent;
@@ -428,6 +429,20 @@ public class ProxyService {
                 user,
                 user.getPrincipal(),
                 user.getCredentials());
+
+            if (environment.getProperty("proxy.container-backend", "docker").equals("kubernetes")) {
+                String podPatchesString;
+                if (spec.getId().equals("admin")) {
+                    podPatchesString = environment.getProperty("proxy.kubernetes.global-pod-patches-admin");
+                } else {
+                    podPatchesString = environment.getProperty("proxy.kubernetes.global-pod-patches-ui");
+                }
+                if (podPatchesString != null) {
+                    spec.addSpecExtension(KubernetesSpecExtension.builder()
+                            .kubernetesPodPatches(expressionResolver.evaluateToString(podPatchesString, context))
+                            .build());
+                }
+            }
 
             // resolve SpEL expression in spec
             spec = spec.firstResolve(expressionResolver, context);
