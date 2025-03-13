@@ -40,14 +40,17 @@ public class BaseController {
     private IdentifierService identifierService;
 
     private String title;
+    private String logoPath;
 
     @PostConstruct
     public void baseInit() {
         title = environment.getProperty("proxy.title", "ShinyProxy");
+        logoPath = environment.getProperty("proxy.logo-path", "/assets/img/logo.png");
     }
 
     protected void prepareMap(ModelMap map) {
         map.put("title", title);
+        map.put("logoPath", logoPath);
         // no versioning (using instanceId) needed since paths already contain a version
         map.put("bootstrapCss", "/webjars/bootstrap/3.4.1/css/bootstrap.min.css");
         map.put("bootstrapJs", "/webjars/bootstrap/3.4.1/js/bootstrap.min.js");
