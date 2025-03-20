@@ -90,8 +90,10 @@ public class FaviconController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        Favicon favicon = faviconCache.get(proxySpecId, (key) -> {
-            Favicon res = resolveFavicon(proxySpec.getFaviconPath());
+        final String faviconPath = proxySpec.getFaviconPath() != null ? proxySpec.getFaviconPath() : "default";
+
+        Favicon favicon = faviconCache.get(faviconPath, (key) -> {
+            Favicon res = resolveFavicon(faviconPath);
             if (res == null) {
                 res = defaultFavicon;
             }
