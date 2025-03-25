@@ -32,8 +32,9 @@ import java.io.IOException;
 public class UserAgentFilter extends OncePerRequestFilter {
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
-        if (request.getHeader("User-Agent").contains("ms-office")) {
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        if (request.getHeader("User-Agent") != null && request.getHeader("User-Agent").contains("ms-office")) {
             // see #33103
             // send empty response if request made by MS Office
             // otherwise the user will not be able to sign-in (or get logged out)
