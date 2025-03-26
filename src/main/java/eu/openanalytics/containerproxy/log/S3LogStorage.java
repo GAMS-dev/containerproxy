@@ -29,6 +29,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -63,10 +64,12 @@ public class S3LogStorage extends AbstractLogStorage {
     @Override
     public void initialize() throws IOException {
         super.initialize();
-        S3ClientBuilder s3ClientBuilder = S3Client.builder();
 
         String accessKey = environment.getProperty("proxy.container-log-s3-access-key");
-        String accessSecret = environment.getProperty("proxy.container-log-s3-access-secret");
+        String accessSecret = environment.getProperty("proxy.container-log-s3-access-secret", System.getenv("GMS_MIRO_CONTAINER_LOG_S3_ACCESS_SECRET"));
+        Region region = Region.of(environment.getProperty("proxy.container-log-s3-region"));
+
+        S3ClientBuilder s3ClientBuilder = S3Client.builder().region(region);
 
         if (accessKey != null && accessSecret != null) {
             AwsBasicCredentials awsCreds = AwsBasicCredentials.create(
