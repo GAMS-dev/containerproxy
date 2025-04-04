@@ -26,6 +26,7 @@ import eu.openanalytics.containerproxy.model.runtime.ParameterNames;
 import eu.openanalytics.containerproxy.model.runtime.ParameterValues;
 import eu.openanalytics.containerproxy.model.runtime.PortMappings;
 import eu.openanalytics.containerproxy.model.runtime.Proxy;
+import eu.openanalytics.containerproxy.model.runtime.runtimevalues.AccessGroupsKey;
 import eu.openanalytics.containerproxy.model.runtime.runtimevalues.CacheHeadersMode;
 import eu.openanalytics.containerproxy.model.runtime.runtimevalues.CacheHeadersModeKey;
 import eu.openanalytics.containerproxy.model.runtime.runtimevalues.ContainerImageKey;
@@ -89,7 +90,8 @@ public class RuntimeValueService {
     public void init() {
         defaultHeartbeatTimeout = environment.getProperty(PROP_TIMEOUT, Long.class, DEFAULT_TIMEOUT);
         defaultMaxLifetime = environment.getProperty(PROP_DEFAULT_PROXY_MAX_LIFETIME, Long.class, -1L);
-        defaultCacheHeadersMode = environment.getProperty(PROP_DEFAULT_CACHE_HEADERS_MODE, CacheHeadersMode.class, CacheHeadersMode.EnforceNoCache);
+        defaultCacheHeadersMode = environment.getProperty(PROP_DEFAULT_CACHE_HEADERS_MODE, CacheHeadersMode.class,
+                CacheHeadersMode.EnforceNoCache);
     }
 
     public Proxy addRuntimeValuesBeforeSpel(Authentication user, ProxySpec spec, Proxy proxy) {
@@ -110,7 +112,11 @@ public class RuntimeValueService {
         proxyBuilder.addRuntimeValue(new RuntimeValue(UserIdKey.inst, proxy.getUserId()), false);
         List<String> groups = UserService.getGroups(user);
         proxyBuilder.addRuntimeValue(new RuntimeValue(UserGroupsKey.inst, String.join(",", groups)), true);
-        proxyBuilder.addRuntimeValue(new RuntimeValue(CreatedTimestampKey.inst, Long.toString(proxy.getCreatedTimestamp())), false);
+        String[] accessGroups = spec.getAccessControl().getGroups();
+        proxyBuilder.addRuntimeValue(new RuntimeValue(AccessGroupsKey.inst,
+                accessGroups == null ? "" : String.join(",", accessGroups)), true);
+        proxyBuilder.addRuntimeValue(
+                new RuntimeValue(CreatedTimestampKey.inst, Long.toString(proxy.getCreatedTimestamp())), false);
 
         if (spec.getCacheHeadersMode() != null) {
             proxyBuilder.addRuntimeValue(new RuntimeValue(CacheHeadersModeKey.inst, spec.getCacheHeadersMode()), true);
@@ -124,8 +130,11 @@ public class RuntimeValueService {
     public Proxy addRuntimeValuesAfterSpel(ProxySpec spec, Proxy proxy) {
         Proxy.ProxyBuilder proxyBuilder = proxy.toBuilder();
 
-        proxyBuilder.addRuntimeValue(new RuntimeValue(HeartbeatTimeoutKey.inst, spec.getHeartbeatTimeout().getValueOrDefault(defaultHeartbeatTimeout)), true);
-        proxyBuilder.addRuntimeValue(new RuntimeValue(MaxLifetimeKey.inst, spec.getMaxLifeTime().getValueOrDefault(defaultMaxLifetime)), true);
+        proxyBuilder.addRuntimeValue(new RuntimeValue(HeartbeatTimeoutKey.inst,
+                spec.getHeartbeatTimeout().getValueOrDefault(defaultHeartbeatTimeout)), true);
+        proxyBuilder.addRuntimeValue(
+                new RuntimeValue(MaxLifetimeKey.inst, spec.getMaxLifeTime().getValueOrDefault(defaultMaxLifetime)),
+                true);
 
         return proxyBuilder.build();
     }
@@ -148,25 +157,30 @@ public class RuntimeValueService {
     public Container addRuntimeValuesAfterSpel(ContainerSpec containerSpec, Container container) {
         Container.ContainerBuilder containerBuilder = container.toBuilder();
         containerBuilder.addRuntimeValue(new RuntimeValue(ContainerIndexKey.inst, container.getIndex()), false);
-        containerBuilder.addRuntimeValue(new RuntimeValue(ContainerImageKey.inst, containerSpec.getImage().getValue()), false);
+        containerBuilder.addRuntimeValue(new RuntimeValue(ContainerImageKey.inst, containerSpec.getImage().getValue()),
+                false);
 
         PortMappings portMappings = new PortMappings();
         for (PortMapping portMapping : containerSpec.getPortMapping()) {
             portMappings.addPortMapping(new PortMappings.PortMappingEntry(
-                portMapping.getName(), portMapping.getPort(),
-                AbstractContainerBackend.computeTargetPath(portMapping.getTargetPath().getValueOrNull())));
+                    portMapping.getName(), portMapping.getPort(),
+                    AbstractContainerBackend.computeTargetPath(portMapping.getTargetPath().getValueOrNull())));
         }
 
         containerBuilder.addRuntimeValue(new RuntimeValue(PortMappingsKey.inst, portMappings), false);
         return containerBuilder.build();
     }
 
-    public Proxy processParameters(Authentication user, ProxySpec spec, Map<String, String> parameters, Proxy proxy) throws InvalidParametersException {
+    public Proxy processParameters(Authentication user, ProxySpec spec, Map<String, String> parameters, Proxy proxy)
+            throws InvalidParametersException {
         Proxy.ProxyBuilder proxyBuilder = proxy.toBuilder();
-        Optional<Pair<ParameterNames, ParameterValues>> providedParametersOptional = parametersService.parseAndValidateRequest(user, spec, parameters);
+        Optional<Pair<ParameterNames, ParameterValues>> providedParametersOptional = parametersService
+                .parseAndValidateRequest(user, spec, parameters);
         if (providedParametersOptional.isPresent()) {
-            proxyBuilder.addRuntimeValue(new RuntimeValue(ParameterNamesKey.inst, providedParametersOptional.get().getFirst()), true);
-            proxyBuilder.addRuntimeValue(new RuntimeValue(ParameterValuesKey.inst, providedParametersOptional.get().getSecond()), true);
+            proxyBuilder.addRuntimeValue(
+                    new RuntimeValue(ParameterNamesKey.inst, providedParametersOptional.get().getFirst()), true);
+            proxyBuilder.addRuntimeValue(
+                    new RuntimeValue(ParameterValuesKey.inst, providedParametersOptional.get().getSecond()), true);
         }
         return proxyBuilder.build();
     }
