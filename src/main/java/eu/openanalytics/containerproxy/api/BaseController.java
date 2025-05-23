@@ -54,12 +54,13 @@ public class BaseController {
         // no versioning (using instanceId) needed since paths already contain a version
         map.put("bootstrapCss", "/webjars/bootstrap/3.4.1/css/bootstrap.min.css");
         map.put("bootstrapJs", "/webjars/bootstrap/3.4.1/js/bootstrap.min.js");
-        map.put("themeCss", "/assets/css/themes/" + environment.getProperty("proxy.theme", "default") + ".css");
+        map.put("themeCss", "/assets/css/themes/colors_" + environment.getProperty("proxy.theme", "default") + ".css");
         map.put("jqueryJs", "/webjars/jquery/3.7.1/jquery.min.js");
         map.put("fontAwesomeCss", "/webjars/fontawesome/4.7.0/css/font-awesome.min.css");
         map.put("resourcePrefix", "/" + identifierService.instanceId);
 
-        ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+        ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes) RequestContextHolder
+                .currentRequestAttributes();
         HttpServletRequest httpServletRequest = servletRequestAttributes.getRequest();
         HttpServletResponse httpServletResponse = servletRequestAttributes.getResponse();
         map.put("request", httpServletRequest);
