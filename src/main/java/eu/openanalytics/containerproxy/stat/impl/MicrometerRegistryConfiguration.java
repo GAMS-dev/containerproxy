@@ -71,8 +71,8 @@ public class MicrometerRegistryConfiguration {
                 }
             })
             // add a common tag with the instanceId of this server. (it cannot simple be called instance, since that is already a default Prometheus label).
-            .commonTags("shinyproxy_instance", identifierService.instanceId,
-                "shinyproxy_realm", identifierService.realmId != null ? identifierService.realmId : "");
+            .commonTags("miroserver_instance", identifierService.instanceId,
+                "miroserver_realm", identifierService.realmId != null ? identifierService.realmId : "");
     }
 
 
