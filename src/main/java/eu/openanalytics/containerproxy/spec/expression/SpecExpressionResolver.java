@@ -1,7 +1,7 @@
-/**
+/*
  * ContainerProxy
  *
- * Copyright (C) 2016-2024 Open Analytics
+ * Copyright (C) 2016-2025 Open Analytics
  *
  * ===========================================================================
  *
@@ -23,7 +23,9 @@ package eu.openanalytics.containerproxy.spec.expression;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import com.google.common.base.Throwables;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Scheduler;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -46,20 +48,23 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 /**
- * Note: inspired by org.springframework.context.expression.StandardBeanExpressionResolver
+ * Note: inspired by
+ * org.springframework.context.expression.StandardBeanExpressionResolver
  */
 @Component
 public class SpecExpressionResolver {
 
     private final ApplicationContext appContext;
     private final ExpressionParser expressionParser;
-    private final Map<SpecExpressionContext, StandardEvaluationContext> evaluationCache = new ConcurrentHashMap<>(8);
+    private final Cache<SpecExpressionContext, StandardEvaluationContext> evaluationCache = Caffeine.newBuilder()
+            .scheduler(Scheduler.systemScheduler())
+            .expireAfterAccess(1, TimeUnit.MINUTES)
+            .build();
 
     private final ParserContext beanExpressionParserContext = new ParserContext() {
         @Override
@@ -84,28 +89,30 @@ public class SpecExpressionResolver {
     }
 
     public <T> T evaluate(String expression, SpecExpressionContext context, Class<T> resType) {
-        if (expression == null) return null;
-        if (expression.isEmpty()) return null;
+        if (expression == null)
+            return null;
+        if (expression.isEmpty())
+            return null;
 
         try {
             Expression expr = this.expressionParser.parseExpression(expression, this.beanExpressionParserContext);
 
             ConfigurableBeanFactory beanFactory = ((ConfigurableApplicationContext) appContext).getBeanFactory();
 
-            StandardEvaluationContext sec = evaluationCache.get(context);
-            if (sec == null) {
-                sec = new StandardEvaluationContext();
-                sec.setRootObject(context);
-                sec.addPropertyAccessor(new BeanExpressionContextAccessor());
-                sec.addPropertyAccessor(new BeanFactoryAccessor());
-                sec.addPropertyAccessor(new MapAccessor());
-                sec.addPropertyAccessor(new EnvironmentAccessor());
-                sec.setBeanResolver(new BeanFactoryResolver(appContext));
-                sec.setTypeLocator(new StandardTypeLocator(beanFactory.getBeanClassLoader()));
+            StandardEvaluationContext sec = evaluationCache.get(context, k -> {
+                StandardEvaluationContext result = new StandardEvaluationContext();
+                result.setRootObject(context);
+                result.addPropertyAccessor(new BeanExpressionContextAccessor());
+                result.addPropertyAccessor(new BeanFactoryAccessor());
+                result.addPropertyAccessor(new MapAccessor());
+                result.addPropertyAccessor(new EnvironmentAccessor());
+                result.setBeanResolver(new BeanFactoryResolver(appContext));
+                result.setTypeLocator(new StandardTypeLocator(beanFactory.getBeanClassLoader()));
                 ConversionService conversionService = beanFactory.getConversionService();
-                if (conversionService != null) sec.setTypeConverter(new StandardTypeConverter(conversionService));
-                evaluationCache.put(context, sec);
-            }
+                if (conversionService != null)
+                    result.setTypeConverter(new StandardTypeConverter(conversionService));
+                return result;
+            });
 
             return expr.getValue(sec, resType);
         } catch (ExpressionException ex) {
@@ -116,7 +123,8 @@ public class SpecExpressionResolver {
     }
 
     public String evaluateToString(String expression, SpecExpressionContext context) {
-        // use the toString() method and not the conversionService in order to maintain behaviour of ShinyProxy 2.6.1 and earlier
+        // use the toString() method and not the conversionService in order to maintain
+        // behaviour of ShinyProxy 2.6.1 and earlier
         Object res = evaluate(expression, context, Object.class);
         if (res == null) {
             return "";
@@ -143,21 +151,22 @@ public class SpecExpressionResolver {
     }
 
     public List<String> evaluateToList(List<String> expressions, SpecExpressionContext context) {
-        if (expressions == null) return null;
+        if (expressions == null)
+            return null;
         return expressions.stream()
-            .flatMap((el) -> {
-                Object result = evaluate(el, context, Object.class);
-                if (result == null) {
-                    result = new ArrayList<>();
-                }
-                if (result instanceof List) {
-                    return ((List<Object>) result).stream().map(Object::toString);
-                }
-                if (result instanceof ArrayNode) {
-                    return StreamSupport.stream(((ArrayNode) result).spliterator(), false).map(JsonNode::asText);
-                }
-                return Stream.of(result.toString());
-            })
-            .toList();
+                .flatMap((el) -> {
+                    Object result = evaluate(el, context, Object.class);
+                    if (result == null) {
+                        result = new ArrayList<>();
+                    }
+                    if (result instanceof List) {
+                        return ((List<Object>) result).stream().map(Object::toString);
+                    }
+                    if (result instanceof ArrayNode) {
+                        return StreamSupport.stream(((ArrayNode) result).spliterator(), false).map(JsonNode::asText);
+                    }
+                    return Stream.of(result.toString());
+                })
+                .toList();
     }
 }

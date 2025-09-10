@@ -1,7 +1,7 @@
-/**
+/*
  * ContainerProxy
  *
- * Copyright (C) 2016-2024 Open Analytics
+ * Copyright (C) 2016-2025 Open Analytics
  *
  * ===========================================================================
  *
@@ -81,13 +81,16 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
     private SpecExpressionResolver specExpressionResolver;
 
     public WebServiceAuthenticationBackend(Environment environment) {
-        requestBodyTemplate = environment.getProperty(PROP_AUTHENTICATION_REQUEST_BODY, "{\"username\":\"%s\",\"password\":\"%s\"}");
+        requestBodyTemplate = environment.getProperty(PROP_AUTHENTICATION_REQUEST_BODY,
+                "{\"username\":\"%s\",\"password\":\"%s\"}");
         if (requestBodyTemplate == null) {
-            throw new IllegalStateException("Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_REQUEST_BODY + "' defined!");
+            throw new IllegalStateException(
+                    "Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_REQUEST_BODY + "' defined!");
         }
         authenticationUrl = environment.getProperty(PROP_AUTHENTICATION_URL, "http://auth:1234/login");
         if (authenticationUrl == null) {
-            throw new IllegalStateException("Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_URL + "' defined!");
+            throw new IllegalStateException(
+                    "Webservice authentication enabled, but no '" + PROP_AUTHENTICATION_URL + "' defined!");
         }
         enableReadonlyMode = !environment.getProperty("proxy.disable-readonly-mode", boolean.class, false);
     }
@@ -127,7 +130,8 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 
             try {
                 String body = String.format(requestBodyTemplate, username, password);
-                ResponseEntity<String> result = restTemplate.exchange(authenticationUrl, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+                ResponseEntity<String> result = restTemplate.exchange(authenticationUrl, HttpMethod.POST,
+                        new HttpEntity<>(body, headers), String.class);
                 if (result.getStatusCode() == HttpStatus.OK) {
                     User user = createUser(username, result.getBody());
                     return new UsernamePasswordAuthenticationToken(user, "", user.getAuthorities());
@@ -142,7 +146,8 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
 
         @Override
         public boolean supports(Class<?> authentication) {
-            // Return true if this AuthenticationProvider supports the provided authentication class
+            // Return true if this AuthenticationProvider supports the provided
+            // authentication class
             return authentication.equals(UsernamePasswordAuthenticationToken.class);
         }
 
@@ -154,9 +159,9 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
             List<SimpleGrantedAuthority> authorities = new ArrayList<>();
             try {
                 jsonResponse = objectMapper.readTree(body);
-                SpecExpressionContext context = SpecExpressionContext.create(jsonResponse);
+                SpecExpressionContext context = SpecExpressionContext.create(jsonResponse).build();
                 List<String> groups = specExpressionResolver.evaluateToList(List.of("#{json.get('roles')}"), context);
-                for (String role: groups) {
+                for (String role : groups) {
                     String mappedRole = role.toUpperCase().startsWith("ROLE_") ? role : "ROLE_" + role;
                     authorities.add(new SimpleGrantedAuthority(mappedRole.toUpperCase()));
                 }
@@ -177,7 +182,8 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
         private final String token;
         private final String permissions;
 
-        public WebServiceUser(String username, String response, JsonNode jsonResponse, Collection<? extends GrantedAuthority> authorities, String token, String permissions) {
+        public WebServiceUser(String username, String response, JsonNode jsonResponse,
+                Collection<? extends GrantedAuthority> authorities, String token, String permissions) {
             super(username, "", authorities);
             this.response = response;
             this.jsonResponse = jsonResponse;
@@ -194,22 +200,22 @@ public class WebServiceAuthenticationBackend implements IAuthenticationBackend {
         }
 
         public String getToken() {
- 			return token;
- 		}
+            return token;
+        }
 
-		public String getPermissions() {
- 			return permissions;
- 		}
+        public String getPermissions() {
+            return permissions;
+        }
     }
 
     @Override
- 	public void customizeContainerEnv(Authentication user, Map<String, String> env) {
- 		WebServiceUser principal = (WebServiceUser) user.getPrincipal();
- 		env.put(ENV_TOKEN, principal.getToken());
+    public void customizeContainerEnv(Authentication user, Map<String, String> env) {
+        WebServiceUser principal = (WebServiceUser) user.getPrincipal();
+        env.put(ENV_TOKEN, principal.getToken());
 
-		if ( enableReadonlyMode && principal.getPermissions().equals("0") ) {
-			env.put("MIRO_MODE", "readonly");
-		}
- 	}
+        if (enableReadonlyMode && principal.getPermissions().equals("0")) {
+            env.put("MIRO_MODE", "readonly");
+        }
+    }
 
 }

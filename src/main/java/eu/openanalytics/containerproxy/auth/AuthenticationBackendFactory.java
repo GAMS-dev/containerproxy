@@ -1,7 +1,7 @@
-/**
+/*
  * ContainerProxy
  *
- * Copyright (C) 2016-2024 Open Analytics
+ * Copyright (C) 2016-2025 Open Analytics
  *
  * ===========================================================================
  *
@@ -20,6 +20,8 @@
  */
 package eu.openanalytics.containerproxy.auth;
 
+import eu.openanalytics.containerproxy.auth.impl.CustomHeaderAuthenticationBackend;
+import eu.openanalytics.containerproxy.auth.impl.LDAPAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.NoAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.OpenIDAuthenticationBackend;
 import eu.openanalytics.containerproxy.auth.impl.WebServiceAuthenticationBackend;
@@ -34,7 +36,8 @@ import org.springframework.stereotype.Service;
 import javax.inject.Inject;
 
 /**
- * Instantiates an appropriate authentication backend depending on the application configuration.
+ * Instantiates an appropriate authentication backend depending on the
+ * application configuration.
  */
 @Service(value = "authenticationBackend")
 @Primary
@@ -64,7 +67,8 @@ public class AuthenticationBackendFactory extends AbstractFactoryBean<IAuthentic
             case OpenIDAuthenticationBackend.NAME -> backend = new OpenIDAuthenticationBackend();
             case WebServiceAuthenticationBackend.NAME -> backend = new WebServiceAuthenticationBackend(environment);
         }
-        if (backend == null) throw new RuntimeException("Unknown authentication type:" + type);
+        if (backend == null)
+            throw new RuntimeException("Unknown authentication type:" + type);
 
         applicationContext.getAutowireCapableBeanFactory().autowireBean(backend);
         return backend;
