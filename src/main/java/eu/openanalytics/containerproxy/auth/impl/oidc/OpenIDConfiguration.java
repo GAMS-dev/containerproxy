@@ -87,7 +87,7 @@ public class OpenIDConfiguration {
             .tokenUri(environment.getProperty("proxy.openid.token-url"))
             .jwkSetUri(environment.getProperty("proxy.openid.jwks-url"))
             .clientId(environment.getProperty("proxy.openid.client-id"))
-            .clientSecret(environment.getProperty("proxy.openid.client-secret"))
+            .clientSecret(environment.getProperty("proxy.openid.client-secret", System.getenv("GMS_MIRO_OIDC_CLIENT_SECRET")))
             .userInfoUri(environment.getProperty("proxy.openid.userinfo-url"))
             .clientAuthenticationMethod(environment.getProperty("proxy.openid.client-authentication-method", ClientAuthenticationMethod.class))
             .build();
