@@ -95,6 +95,7 @@ public class ProxyAccessControlService {
         if (sessionId.isEmpty()) {
             return checkAccess(auth, spec);
         }
+        authorizationCache.invalidateAll();
 
         // we got a sessionId -> use the cache
         return authorizationCache.get(

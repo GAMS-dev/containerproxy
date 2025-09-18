@@ -222,7 +222,8 @@ public class ProxyService {
     public List<Proxy> getUserProxies(Authentication authentication) {
         return proxyStore.getUserProxies(authentication.getName())
             .stream()
-            .filter(p -> proxyAccessControlService.canAccess(authentication, p.getSpecId())).toList();
+            // need to check whether specId is null as app might have been removed
+            .filter(p -> p.getSpecId() == null || proxyAccessControlService.canAccess(authentication, p.getSpecId())).toList();
     }
 
     /**
