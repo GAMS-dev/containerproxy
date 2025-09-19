@@ -36,7 +36,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MemoryProxyStore implements IProxyStore {
 
     private final ConcurrentHashMap<String, Proxy> activeProxies = new ConcurrentHashMap<>();
-    private final ListMultimap<String, String> userProxies = Multimaps.synchronizedListMultimap(ArrayListMultimap.create());
+    private final ListMultimap<String, String> userProxies = Multimaps
+            .synchronizedListMultimap(ArrayListMultimap.create());
     private final AccessControlEvaluationService accessControlEvaluationService;
 
     public MemoryProxyStore(AccessControlEvaluationService accessControlEvaluationService) {

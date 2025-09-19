@@ -48,6 +48,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -61,10 +63,7 @@ public class SpecExpressionResolver {
 
     private final ApplicationContext appContext;
     private final ExpressionParser expressionParser;
-    private final Cache<SpecExpressionContext, StandardEvaluationContext> evaluationCache = Caffeine.newBuilder()
-            .scheduler(Scheduler.systemScheduler())
-            .expireAfterAccess(1, TimeUnit.MINUTES)
-            .build();
+    private final Map<SpecExpressionContext, StandardEvaluationContext> evaluationCache = new ConcurrentHashMap<>(8);
 
     private final ParserContext beanExpressionParserContext = new ParserContext() {
         @Override
@@ -99,20 +98,21 @@ public class SpecExpressionResolver {
 
             ConfigurableBeanFactory beanFactory = ((ConfigurableApplicationContext) appContext).getBeanFactory();
 
-            StandardEvaluationContext sec = evaluationCache.get(context, k -> {
-                StandardEvaluationContext result = new StandardEvaluationContext();
-                result.setRootObject(context);
-                result.addPropertyAccessor(new BeanExpressionContextAccessor());
-                result.addPropertyAccessor(new BeanFactoryAccessor());
-                result.addPropertyAccessor(new MapAccessor());
-                result.addPropertyAccessor(new EnvironmentAccessor());
-                result.setBeanResolver(new BeanFactoryResolver(appContext));
-                result.setTypeLocator(new StandardTypeLocator(beanFactory.getBeanClassLoader()));
+            StandardEvaluationContext sec = evaluationCache.get(context);
+            if (sec == null) {
+                sec = new StandardEvaluationContext();
+                sec.setRootObject(context);
+                sec.addPropertyAccessor(new BeanExpressionContextAccessor());
+                sec.addPropertyAccessor(new BeanFactoryAccessor());
+                sec.addPropertyAccessor(new MapAccessor());
+                sec.addPropertyAccessor(new EnvironmentAccessor());
+                sec.setBeanResolver(new BeanFactoryResolver(appContext));
+                sec.setTypeLocator(new StandardTypeLocator(beanFactory.getBeanClassLoader()));
                 ConversionService conversionService = beanFactory.getConversionService();
                 if (conversionService != null)
-                    result.setTypeConverter(new StandardTypeConverter(conversionService));
-                return result;
-            });
+                    sec.setTypeConverter(new StandardTypeConverter(conversionService));
+                evaluationCache.put(context, sec);
+            }
 
             return expr.getValue(sec, resType);
         } catch (ExpressionException ex) {
