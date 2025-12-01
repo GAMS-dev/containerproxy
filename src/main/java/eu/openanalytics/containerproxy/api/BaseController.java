@@ -61,8 +61,7 @@ public class BaseController {
     }
 
     protected void prepareMap(ModelMap map) {
-        ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes) RequestContextHolder
-                .currentRequestAttributes();
+        ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
         HttpServletRequest httpServletRequest = servletRequestAttributes.getRequest();
         HttpServletResponse httpServletResponse = servletRequestAttributes.getResponse();
         map.put("title", getTitle(userService.getCurrentAuth(), httpServletRequest.getServerName()));
@@ -86,9 +85,10 @@ public class BaseController {
         SpecExpressionContext context = SpecExpressionContext.create(
                 user,
                 user.getPrincipal(),
-                user.getCredentials())
-                .serverName(serverName)
-                .build();
+                user.getCredentials()
+            )
+            .serverName(serverName)
+            .build();
         return expressionResolver.evaluateToString(title, context);
     }
 

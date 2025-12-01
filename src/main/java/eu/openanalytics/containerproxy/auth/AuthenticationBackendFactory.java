@@ -36,8 +36,7 @@ import org.springframework.stereotype.Service;
 import javax.inject.Inject;
 
 /**
- * Instantiates an appropriate authentication backend depending on the
- * application configuration.
+ * Instantiates an appropriate authentication backend depending on the application configuration.
  */
 @Service(value = "authenticationBackend")
 @Primary
@@ -67,8 +66,7 @@ public class AuthenticationBackendFactory extends AbstractFactoryBean<IAuthentic
             case OpenIDAuthenticationBackend.NAME -> backend = new OpenIDAuthenticationBackend();
             case WebServiceAuthenticationBackend.NAME -> backend = new WebServiceAuthenticationBackend(environment);
         }
-        if (backend == null)
-            throw new RuntimeException("Unknown authentication type:" + type);
+        if (backend == null) throw new RuntimeException("Unknown authentication type:" + type);
 
         applicationContext.getAutowireCapableBeanFactory().autowireBean(backend);
         return backend;
