@@ -5,7 +5,7 @@
 
     <groupId>eu.openanalytics</groupId>
     <artifactId>containerproxy</artifactId>
-    <version>1.2.2</version>
+    <version>1.2.3</version>
     <name>ContainerProxy</name>
     <packaging>jar</packaging>
     <inceptionYear>2016</inceptionYear>
@@ -13,7 +13,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.11</version>
+        <version>3.4.13</version>
         <relativePath/>
     </parent>
 
@@ -23,7 +23,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <!-- Dependency versions -->
-        <spring-boot.version>3.4.11</spring-boot.version>
+        <spring-boot.version>3.4.13</spring-boot.version>
         <aws-java-sdk.version>2.31.21</aws-java-sdk.version>
         <commons-collections4.version>4.4</commons-collections4.version>
         <commons-io.version>2.19.0</commons-io.version>
@@ -429,6 +429,28 @@
         <dependency>
             <groupId>jakarta.mail</groupId>
             <artifactId>jakarta.mail-api</artifactId>
+        </dependency>
+
+        <!-- Transitive dependencies updated for security -->
+        <dependency>
+            <groupId>io.undertow</groupId>
+            <artifactId>undertow-core</artifactId>
+            <version>2.3.21.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>io.undertow</groupId>
+            <artifactId>undertow-servlet</artifactId>
+            <version>2.3.21.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>io.undertow</groupId>
+            <artifactId>undertow-websockets-jsr</artifactId>
+            <version>2.3.21.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>2.25.3</version>
         </dependency>
     </dependencies>
 

@@ -1,7 +1,7 @@
 /*
  * ContainerProxy
  *
- * Copyright (C) 2016-2025 Open Analytics
+ * Copyright (C) 2016-2026 Open Analytics
  *
  * ===========================================================================
  *
@@ -30,6 +30,7 @@ import eu.openanalytics.containerproxy.spec.IProxySpecProvider;
 import eu.openanalytics.containerproxy.util.LoggingConfigurer;
 import eu.openanalytics.containerproxy.util.ProxyMappingManager;
 import io.undertow.Handlers;
+import io.undertow.UndertowOptions;
 import io.undertow.server.handlers.SameSiteCookieHandler;
 import io.undertow.servlet.api.ServletSessionConfig;
 import io.undertow.servlet.api.SessionManagerFactory;
@@ -338,6 +339,12 @@ public class ContainerProxyApplication {
             throw new IllegalArgumentException("Invalid bind address specified", e);
         }
         factory.setPort(Integer.parseInt(environment.getProperty("proxy.port", "8080")));
+        factory.addBuilderCustomizers(builder -> {
+            // allow uploads of unlimited size
+            builder.setServerOption(UndertowOptions.MAX_ENTITY_SIZE, -1L);
+            // limit parsing of multipart requests to 2MB (see #36099), multipart requests are not used in ShinyProxy
+            builder.setServerOption(UndertowOptions.MULTIPART_MAX_ENTITY_SIZE, 2097152L);
+        });
         return factory;
     }
 
