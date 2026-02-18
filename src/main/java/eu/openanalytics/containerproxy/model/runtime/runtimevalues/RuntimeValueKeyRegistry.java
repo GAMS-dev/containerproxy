@@ -39,6 +39,7 @@ public class RuntimeValueKeyRegistry {
         addRuntimeValueKey(ProxySpecIdKey.inst);
         addRuntimeValueKey(RealmIdKey.inst);
         addRuntimeValueKey(UserGroupsKey.inst);
+        addRuntimeValueKey(AccessGroupsKey.inst);
         addRuntimeValueKey(UserIdKey.inst);
         addRuntimeValueKey(ParameterNamesKey.inst);
         addRuntimeValueKey(ParameterValuesKey.inst);
